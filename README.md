@@ -203,6 +203,33 @@ PYTHONPATH=. python -m causal_smart_home.cli filter \
   --min-coverage 0.5
 ```
 
+扫描 causal filter 参数：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli sweep-filter \
+  --prior-json outputs/fr_winter_to_spring_device_h5e-05/causal_prior.json \
+  --generated-pkl /home/heyang/projects/SmartGen/anomaly_detection_pipeline/synthetic_data/fr_spring_generation_SPPC_th=0.918_gpt-4o_seq_filter_true.pkl \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/filter_sweep \
+  --tag fr_spring_filter_true \
+  --top-k-edges 10,20,30 \
+  --min-coverages 0.3,0.5,0.7 \
+  --min-checked-edges 0,1,2,3 \
+  --sequence-length 40
+```
+
+输出文件：
+
+```text
+filter_sweep_summary.csv
+filter_sweep_summary.json
+fr_spring_filter_true_k30_cov0p5_chk2_kept.pkl
+...
+```
+
+`min_checked_edges` 用来降低误删：当一条序列实际命中的因果边少于该值时，即使 coverage 低，也暂时保留，避免“证据不足时硬删除”。
+
+`sequence_length 40` 会把写出的 kept pkl 统一 pad/truncate 到 SmartGuard 训练数据的长度；如果只是分析 SmartGen 原始变长序列，可以省略这个参数。
+
 ## 当前实验快照
 
 主实验设置：
@@ -265,7 +292,7 @@ PYTHONPATH=. pytest -q
 当前验证结果：
 
 ```text
-4 passed, 1 warning
+5 passed, 1 warning
 ```
 
 如果某个环境没有安装 `torch`，依赖因果训练的测试会自动跳过，非 torch 测试仍可运行。

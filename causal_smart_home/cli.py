@@ -11,7 +11,31 @@ from .pipeline import CausalSmartHomePipeline
 from .causal_prior import CausalPrior
 from .causal_prompt import build_causal_smartgen_prompt
 from .causal_filter import CausalConsistencyFilter
+from .filter_sweep import build_filter_sweep_configs, run_filter_sweep
 from .demo_data import make_toy_normal_sequences, make_toy_generated_candidates
+
+
+def _parse_int_list(value: str) -> list[int]:
+    return [int(part.strip()) for part in value.split(",") if part.strip()]
+
+
+def _parse_float_list(value: str) -> list[float]:
+    return [float(part.strip()) for part in value.split(",") if part.strip()]
+
+
+def _parse_optional_float_list(value: str | None) -> list[float | None] | None:
+    if value is None:
+        return None
+    out: list[float | None] = []
+    for part in value.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        if item.lower() in {"none", "null"}:
+            out.append(None)
+        else:
+            out.append(float(item))
+    return out
 
 
 def _load_pkl(path: str | Path):
@@ -82,6 +106,36 @@ def cmd_filter(args) -> None:
     print(f"saved {scores_path}")
 
 
+def cmd_sweep_filter(args) -> None:
+    prior = CausalPrior.load(args.prior_json)
+    raw = _load_pkl(args.generated_pkl)
+    sequences = load_numeric_sequences(raw)
+    configs = build_filter_sweep_configs(
+        top_k_edges=_parse_int_list(args.top_k_edges),
+        min_coverages=_parse_float_list(args.min_coverages),
+        min_checked_edges=_parse_int_list(args.min_checked_edges),
+        min_edge_weights=_parse_optional_float_list(args.min_edge_weights),
+    )
+    tag = args.tag or Path(args.generated_pkl).stem
+    rows = run_filter_sweep(
+        prior,
+        sequences,
+        configs,
+        out_dir=args.out_dir,
+        tag=tag,
+        write_kept=not args.summary_only,
+        write_scores=args.write_scores,
+        summary_prefix=args.summary_prefix,
+        sequence_length=args.sequence_length,
+        pad_value=args.pad_value,
+    )
+    csv_path = Path(args.out_dir) / f"{args.summary_prefix}_summary.csv"
+    json_path = Path(args.out_dir) / f"{args.summary_prefix}_summary.json"
+    print(f"scanned={len(rows)} raw={len(sequences)}")
+    print(f"saved {csv_path}")
+    print(f"saved {json_path}")
+
+
 def cmd_demo(args) -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -148,6 +202,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-coverage", type=float, default=0.5)
     p.add_argument("--top-k-edges", type=int, default=30)
     p.set_defaults(func=cmd_filter)
+
+    p = sub.add_parser("sweep-filter", help="sweep causal filter thresholds and write kept pkl candidates")
+    p.add_argument("--prior-json", required=True)
+    p.add_argument("--generated-pkl", required=True)
+    p.add_argument("--out-dir", required=True)
+    p.add_argument("--top-k-edges", default="10,20,30")
+    p.add_argument("--min-coverages", default="0.3,0.5,0.7")
+    p.add_argument("--min-checked-edges", default="0,1,2,3")
+    p.add_argument("--min-edge-weights")
+    p.add_argument("--tag")
+    p.add_argument("--summary-prefix", default="filter_sweep")
+    p.add_argument("--sequence-length", type=int)
+    p.add_argument("--pad-value", type=int, default=0)
+    p.add_argument("--summary-only", action="store_true")
+    p.add_argument("--write-scores", action="store_true")
+    p.set_defaults(func=cmd_sweep_filter)
 
     p = sub.add_parser("demo", help="run toy end-to-end demo")
     p.add_argument("--out-dir", default="outputs/demo")
