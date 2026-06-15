@@ -230,6 +230,31 @@ fr_spring_filter_true_k30_cov0p5_chk2_kept.pkl
 
 `sequence_length 40` 会把写出的 kept pkl 统一 pad/truncate 到 SmartGuard 训练数据的长度；如果只是分析 SmartGen 原始变长序列，可以省略这个参数。
 
+批量调用 SmartGuard 原流程训练和评估：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli smartguard-sweep-eval \
+  --sweep-summary outputs/fr_winter_to_spring_device_h5e-05/filter_sweep/filter_sweep_summary.csv \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartguard_sweep_eval \
+  --dataset fr \
+  --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
+  --epochs 60 \
+  --threshold-percentage 95 \
+  --sequence-length 40
+```
+
+这个命令不会改 SmartGuard 源码。它会在 `out-dir` 中为每个 selected slug 生成：
+
+```text
+*_merged_train.pkl
+*_smartguard.pth
+*_smartguard_eval.json
+smartguard_sweep_eval_summary.csv
+smartguard_sweep_eval_summary.json
+```
+
+如需先检查合并训练集和输出路径，可以加 `--dry-run`，不会真正训练模型。
+
 ## 当前实验快照
 
 主实验设置：
@@ -292,7 +317,7 @@ PYTHONPATH=. pytest -q
 当前验证结果：
 
 ```text
-5 passed, 1 warning
+8 passed, 1 warning
 ```
 
 如果某个环境没有安装 `torch`，依赖因果训练的测试会自动跳过，非 torch 测试仍可运行。

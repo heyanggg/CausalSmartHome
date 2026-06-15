@@ -12,6 +12,12 @@ from .causal_prior import CausalPrior
 from .causal_prompt import build_causal_smartgen_prompt
 from .causal_filter import CausalConsistencyFilter
 from .filter_sweep import build_filter_sweep_configs, run_filter_sweep
+from .smartguard_experiment import (
+    SmartGuardRunConfig,
+    default_smartguard_paths,
+    run_smartguard_experiment,
+    run_smartguard_sweep,
+)
 from .demo_data import make_toy_normal_sequences, make_toy_generated_candidates
 
 
@@ -21,6 +27,10 @@ def _parse_int_list(value: str) -> list[int]:
 
 def _parse_float_list(value: str) -> list[float]:
     return [float(part.strip()) for part in value.split(",") if part.strip()]
+
+
+def _parse_str_list(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _parse_optional_float_list(value: str | None) -> list[float | None] | None:
@@ -136,6 +146,62 @@ def cmd_sweep_filter(args) -> None:
     print(f"saved {json_path}")
 
 
+def _smartguard_config_from_args(args, add_pkl: str | Path, tag: str) -> SmartGuardRunConfig:
+    smartguard_root = Path(args.smartguard_root).resolve()
+    defaults = default_smartguard_paths(smartguard_root, args.dataset)
+    return SmartGuardRunConfig(
+        smartguard_root=smartguard_root,
+        dataset=args.dataset,
+        base_train_pkl=Path(args.base_train_pkl or defaults["base_train_pkl"]).resolve(),
+        add_pkl=Path(add_pkl).resolve(),
+        out_dir=Path(args.out_dir).resolve(),
+        tag=tag,
+        vld_pkl=Path(args.vld_pkl).resolve() if args.vld_pkl else defaults["vld_pkl"],
+        test_pkl=Path(args.test_pkl).resolve() if args.test_pkl else defaults["test_pkl"],
+        sequence_length=args.sequence_length,
+        pad_value=args.pad_value,
+        epochs=args.epochs,
+        threshold_percentage=args.threshold_percentage,
+        model=args.model,
+        mask_strategy=args.mask_strategy,
+        mask_ratio=args.mask_ratio,
+        mask_step=args.mask_step,
+        layer=args.layer,
+        batch=args.batch,
+        embedding=args.embedding,
+        TTPE=args.TTPE,
+        LDMS=args.LDMS,
+        seed=args.seed,
+        attacks=tuple(_parse_str_list(args.attacks)),
+        dry_run=args.dry_run,
+    )
+
+
+def cmd_smartguard_eval(args) -> None:
+    tag = args.tag or Path(args.add_pkl).stem
+    config = _smartguard_config_from_args(args, args.add_pkl, tag)
+    payload = run_smartguard_experiment(config)
+    print(f"saved {payload['result_path']}")
+    aggregate = payload.get("aggregate")
+    if aggregate:
+        print(
+            "aggregate "
+            f"recall={aggregate['recall']:.4f} "
+            f"precision={aggregate['precision']:.4f} "
+            f"f1={aggregate['f1_score']:.4f}"
+        )
+
+
+def cmd_smartguard_sweep_eval(args) -> None:
+    slugs = _parse_str_list(args.select_slugs)
+    base_config = _smartguard_config_from_args(args, args.sweep_summary, args.tag)
+    rows = run_smartguard_sweep(args.sweep_summary, base_config, slugs=slugs)
+    out = Path(args.out_dir)
+    print(f"evaluated={len(rows)}")
+    print(f"saved {out / 'smartguard_sweep_eval_summary.csv'}")
+    print(f"saved {out / 'smartguard_sweep_eval_summary.json'}")
+
+
 def cmd_demo(args) -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -218,6 +284,45 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary-only", action="store_true")
     p.add_argument("--write-scores", action="store_true")
     p.set_defaults(func=cmd_sweep_filter)
+
+    def add_smartguard_common_options(p) -> None:
+        p.add_argument("--smartguard-root", default="/home/heyang/projects/SmartGuard")
+        p.add_argument("--dataset", default="fr")
+        p.add_argument("--base-train-pkl")
+        p.add_argument("--vld-pkl")
+        p.add_argument("--test-pkl")
+        p.add_argument("--out-dir", required=True)
+        p.add_argument("--sequence-length", type=int, default=40)
+        p.add_argument("--pad-value", type=int, default=0)
+        p.add_argument("--epochs", type=int, default=60)
+        p.add_argument("--threshold-percentage", type=float, default=95.0)
+        p.add_argument("--model", default="SmartGuard")
+        p.add_argument("--mask-strategy", default="loss_guided")
+        p.add_argument("--mask-ratio", type=float, default=0.2)
+        p.add_argument("--mask-step", type=int, default=4)
+        p.add_argument("--layer", type=int, default=2)
+        p.add_argument("--batch", type=int, default=1024)
+        p.add_argument("--embedding", type=int, default=256)
+        p.add_argument("--TTPE", dest="TTPE", action="store_true", default=True)
+        p.add_argument("--no-TTPE", dest="TTPE", action="store_false")
+        p.add_argument("--LDMS", dest="LDMS", action="store_true", default=True)
+        p.add_argument("--no-LDMS", dest="LDMS", action="store_false")
+        p.add_argument("--seed", type=int, default=2023)
+        p.add_argument("--attacks", default="SD,MD,DM,DD")
+        p.add_argument("--dry-run", action="store_true")
+
+    p = sub.add_parser("smartguard-eval", help="train/evaluate SmartGuard with one added synthetic pkl")
+    add_smartguard_common_options(p)
+    p.add_argument("--add-pkl", required=True)
+    p.add_argument("--tag")
+    p.set_defaults(func=cmd_smartguard_eval)
+
+    p = sub.add_parser("smartguard-sweep-eval", help="train/evaluate SmartGuard for selected filter sweep rows")
+    add_smartguard_common_options(p)
+    p.add_argument("--sweep-summary", required=True)
+    p.add_argument("--select-slugs", default="k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3")
+    p.add_argument("--tag", default="causal_filter")
+    p.set_defaults(func=cmd_smartguard_sweep_eval)
 
     p = sub.add_parser("demo", help="run toy end-to-end demo")
     p.add_argument("--out-dir", default="outputs/demo")
