@@ -1,0 +1,125 @@
+# =========================
+# CausalSmartHome .gitignore
+# =========================
+
+# ---- Python cache / test cache ----
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.cache/
+.ipynb_checkpoints/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ---- Virtual environments / local env files ----
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+ENV/
+conda-meta/
+
+# ---- Packaging / build artifacts ----
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ---- IDE / OS files ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- External upstream projects ----
+# These are local symlinks to the full SmartGuard / SmartGen / GCAD repos.
+# Do not commit the symlinks themselves or the old tar snapshot.
+external_sources/*
+!external_sources/.gitkeep
+!external_sources/README.md
+external_sources_snapshot_from_tar/
+
+# Old failed/abandoned stitched project, not part of current glue-layer repo.
+CausalGenGuard/
+
+# ---- Raw datasets / generated datasets ----
+data/
+dataset/
+datasets/
+raw_data/
+processed_data/
+IoT_data/
+**/IoT_data/
+synthetic_data/
+**/synthetic_data/
+anomaly_detection_pipeline/synthetic_data/
+
+# Smart-home sequence/data files generated or consumed by experiments.
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.mat
+*.csv
+*.tsv
+
+# ---- Model checkpoints / training artifacts ----
+checkpoints/
+checkpoint/
+ckpt/
+saved_models/
+models/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.joblib
+
+# ---- Experiment outputs / logs ----
+outputs/
+results/
+result/
+runs/
+logs/
+log/
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+*.log
+*_RESULT
+*_result
+*_results
+
+# ---- Temporary files / archives ----
+tmp/
+temp/
+*.tmp
+*.bak
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+core_py_projects_*.tar.gz
+
+# ---- Local notes / paper PDFs not needed in the public code repo ----
+论文缝合与实现.txt
+*.pdf
+
+# ---- Optional: keep placeholder files ----
+!.gitkeep

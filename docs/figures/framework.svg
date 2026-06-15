@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#222" />
+    </marker>
+    <style>
+      .box { fill:#f7f9fc; stroke:#253858; stroke-width:2; rx:16; }
+      .box2 { fill:#fff7e6; stroke:#8a5a00; stroke-width:2; rx:16; }
+      .box3 { fill:#eefaf1; stroke:#1f7a3a; stroke-width:2; rx:16; }
+      .box4 { fill:#fceeef; stroke:#9b1c31; stroke-width:2; rx:16; }
+      .small { font: 18px sans-serif; fill:#172b4d; }
+      .title { font: 24px sans-serif; font-weight:700; fill:#091e42; }
+      .note { font: 15px sans-serif; fill:#42526e; }
+      .arrow { stroke:#222; stroke-width:2.2; fill:none; marker-end:url(#arrow); }
+      .dash { stroke:#666; stroke-width:2; fill:none; stroke-dasharray:7,7; marker-end:url(#arrow); }
+    </style>
+  </defs>
+
+  <text x="40" y="42" class="title">CausalSmartHome: non-invasive stitching of SmartGen, GCAD and SmartGuard</text>
+
+  <rect x="40" y="90" width="240" height="100" class="box"/>
+  <text x="65" y="125" class="small">Historical normal</text>
+  <text x="65" y="153" class="small">behavior sequences</text>
+  <text x="65" y="178" class="note">[day, hour, device, action]</text>
+
+  <rect x="330" y="70" width="260" height="140" class="box2"/>
+  <text x="355" y="105" class="small">SmartGen unchanged</text>
+  <text x="355" y="134" class="note">TSS: split long routines</text>
+  <text x="355" y="157" class="note">SSC/SPPC: compress semantics</text>
+  <text x="355" y="180" class="note">GSS: transition-frequency hints</text>
+
+  <rect x="330" y="270" width="260" height="145" class="box3"/>
+  <text x="355" y="305" class="small">Event tensor bridge</text>
+  <text x="355" y="334" class="note">actions/devices -> channels</text>
+  <text x="355" y="357" class="note">3-hour bins -> time steps</text>
+  <text x="355" y="380" class="note">subsequence motifs optional</text>
+
+  <rect x="640" y="270" width="250" height="145" class="box3"/>
+  <text x="665" y="305" class="small">GCAD-style prior</text>
+  <text x="665" y="334" class="note">gradient Granger graph</text>
+  <text x="665" y="357" class="note">symmetry sparsification</text>
+  <text x="665" y="380" class="note">causal edge JSON</text>
+
+  <rect x="640" y="70" width="250" height="140" class="box2"/>
+  <text x="665" y="105" class="small">Causal-GSS prompt</text>
+  <text x="665" y="134" class="note">SmartGen transitions</text>
+  <text x="665" y="157" class="note">+ causal order constraints</text>
+  <text x="665" y="180" class="note">+ context change request</text>
+
+  <rect x="940" y="70" width="250" height="140" class="box2"/>
+  <text x="965" y="105" class="small">LLM synthesis</text>
+  <text x="965" y="134" class="note">target-context routines</text>
+  <text x="965" y="157" class="note">same SmartGen output format</text>
+  <text x="965" y="180" class="note">no model-code edits</text>
+
+  <rect x="940" y="270" width="250" height="145" class="box4"/>
+  <text x="965" y="305" class="small">Two-stage filtering</text>
+  <text x="965" y="334" class="note">SmartGen TOF</text>
+  <text x="965" y="357" class="note">+ causal consistency filter</text>
+  <text x="965" y="380" class="note">keep plausible sequences</text>
+
+  <rect x="640" y="500" width="250" height="145" class="box"/>
+  <text x="665" y="535" class="small">SmartGuard unchanged</text>
+  <text x="665" y="564" class="note">retrain with filtered data</text>
+  <text x="665" y="587" class="note">LDMS + TTPE + NWRL</text>
+  <text x="665" y="610" class="note">anomaly score</text>
+
+  <rect x="940" y="500" width="250" height="145" class="box"/>
+  <text x="965" y="535" class="small">Evaluation</text>
+  <text x="965" y="564" class="note">SD / MD / DM / DD attacks</text>
+  <text x="965" y="587" class="note">FR / SP / US shifts</text>
+  <text x="965" y="610" class="note">F1, Recall, Precision, FPR</text>
+
+  <path class="arrow" d="M280 140 H330"/>
+  <path class="arrow" d="M280 140 C300 230 310 300 330 340"/>
+  <path class="arrow" d="M590 140 H640"/>
+  <path class="arrow" d="M590 342 H640"/>
+  <path class="arrow" d="M765 270 V210"/>
+  <path class="arrow" d="M890 140 H940"/>
+  <path class="arrow" d="M1065 210 V270"/>
+  <path class="arrow" d="M1065 415 C1040 470 970 500 890 565"/>
+  <path class="arrow" d="M890 572 H940"/>
+  <path class="dash" d="M765 415 V500"/>
+  <text x="790" y="464" class="note">optional causal explanation score</text>
+</svg>
