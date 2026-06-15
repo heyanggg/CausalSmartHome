@@ -300,6 +300,27 @@ reject ratio: 13.14%
 
 因此论文或报告中应表述为“因果过滤改变了召回率和精确率的权衡”，不要直接写成“已经提升整体异常检测性能”。
 
+### SmartGuard wrapper 对照评估
+
+随后使用 `smartguard-sweep-eval` 在同一 SmartGuard wrapper 口径下补跑了 `base_only`、未过滤 `filter_true` 和三档 causal filter 对照。
+
+```text
+dataset: fr
+epochs: 60
+threshold percentage: 95
+attacks: SD, MD, DM, DD
+```
+
+| Method | Added Synthetic | Recall | Precision | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| base_only | 0 | 0.9935 | 0.9766 | 0.9850 |
+| unfiltered_filter_true | 125 | 0.9425 | 0.9731 | 0.9575 |
+| k30_cov0p5_chk1 | 109 | 0.9622 | 0.9736 | 0.9679 |
+| k30_cov0p5_chk2 | 118 | 0.9533 | 0.9682 | 0.9607 |
+| k30_cov0p5_chk3 | 121 | 0.9522 | 0.9793 | 0.9655 |
+
+同一 wrapper 口径下，causal filter 相比未过滤合成数据有所改善，但仍未超过 `base_only`。详细记录见 `docs/task5_smartguard_sweep_eval.md`。
+
 ## 测试
 
 在项目根目录运行：
