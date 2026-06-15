@@ -69,20 +69,25 @@ class CausalPrior:
             return cls(**json.load(f))
 
 
-class _TinyMixer(nn.Module):
-    def __init__(self, in_channels: int, lag: int, hidden: int = 64):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(in_channels * lag, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, in_channels),
-        )
+if nn is not None:
 
-    def forward(self, x):
-        return self.net(x)
+    class _TinyMixer(nn.Module):
+        def __init__(self, in_channels: int, lag: int, hidden: int = 64):
+            super().__init__()
+            self.net = nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(in_channels * lag, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, in_channels),
+            )
+
+        def forward(self, x):
+            return self.net(x)
+
+else:  # pragma: no cover
+    _TinyMixer = None
 
 
 class GradientCausalMiner:
@@ -110,7 +115,7 @@ class GradientCausalMiner:
         device: str | None = None,
     ) -> None:
         if torch is None:
-            raise RuntimeError("torch is required for GradientCausalMiner")
+            raise RuntimeError("torch is required for GradientCausalMiner; install project dependencies or run inside smartguard_env")
         self.lag = lag
         self.epochs = epochs
         self.hidden = hidden

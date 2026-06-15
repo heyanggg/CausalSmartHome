@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "causal-smart-home"
 version = "0.1.0"
 description = "Non-invasive glue layer for SmartGuard, SmartGen and GCAD-style causal priors."
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 authors = [{name = "Glue prototype generated for stitching SmartGuard, SmartGen and GCAD"}]
 dependencies = [
   "numpy>=1.23",

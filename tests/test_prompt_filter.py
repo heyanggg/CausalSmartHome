@@ -1,7 +1,14 @@
+import importlib.util
+
+import pytest
+
 from causal_smart_home.demo_data import make_toy_normal_sequences, make_toy_generated_candidates
 from causal_smart_home.pipeline import CausalSmartHomePipeline
 from causal_smart_home.causal_prompt import build_causal_smartgen_prompt
 from causal_smart_home.causal_filter import CausalConsistencyFilter
+
+
+pytestmark = pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is required for causal prior training")
 
 
 def test_prompt_contains_causal_hints_and_filter_scores(tmp_path):

@@ -1,6 +1,13 @@
+import importlib.util
+
+import pytest
+
 from causal_smart_home.demo_data import make_toy_normal_sequences
 from causal_smart_home.event_tensor import EventTensorizer
 from causal_smart_home.causal_prior import GradientCausalMiner
+
+
+pytestmark = pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch is required for causal prior training")
 
 
 def test_gradient_causal_prior_serializable():
