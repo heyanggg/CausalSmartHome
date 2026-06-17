@@ -423,6 +423,8 @@ SP 结论与 FR 不同：未过滤 SmartGen baseline 已经较强，三档 hard-
 
 随后补做了 SP 被删样本分布诊断和温和过滤复测。被删样本通常比 kept 样本更远离 spring normal test，但即使只删除 6-15 条样本，filtered model 对 baseline validation 的重构 loss 也会从 0.0007 升到 1.9021-9.9090，最佳温和变体 F1 只有 0.8118。因此 SP 的主要问题不是简单参数过狠，而是 hard deletion 会破坏 SmartGen synthetic training distribution。详细记录见 `docs/task8_sp_filter_diagnostics.md`。
 
+再进一步实现了 causal soft weighting：保留全部 140 条 synthetic sequences，用 `weight = floor + (1 - floor) * causal_coverage ** power` 给训练 loss 加权。SP 最佳 weighted 结果为 `top_k=30, floor=0.2, power=1`，F1 达到 0.9189，明显好于 hard deletion，但仍略低于未过滤 baseline 的 0.9239。详细记录见 `docs/task9_sp_weighted_smartgen.md`。
+
 ### SmartGuard wrapper 对照评估（辅助）
 
 随后使用 `smartguard-sweep-eval` 在同一 SmartGuard wrapper 口径下补跑了 `base_only`、未过滤 `filter_true` 和三档 causal filter 对照。

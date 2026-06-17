@@ -229,6 +229,11 @@ def _smartgen_anomaly_config_from_args(args, synthetic_pkl: str | Path, tag: str
         attack_pkl=Path(args.attack_pkl).resolve() if args.attack_pkl else None,
         target_test_pkl=Path(args.target_test_pkl).resolve() if args.target_test_pkl else None,
         validation_pkl=Path(args.validation_pkl).resolve() if args.validation_pkl else None,
+        weight_prior_json=Path(args.weight_prior_json).resolve() if args.weight_prior_json else None,
+        weight_top_k_edges=args.weight_top_k_edges,
+        weight_min_edge_weight=args.weight_min_edge_weight,
+        weight_floor=args.weight_floor,
+        weight_power=args.weight_power,
     )
 
 
@@ -405,6 +410,11 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--attack-pkl")
         p.add_argument("--target-test-pkl")
         p.add_argument("--validation-pkl")
+        p.add_argument("--weight-prior-json")
+        p.add_argument("--weight-top-k-edges", type=int, default=30)
+        p.add_argument("--weight-min-edge-weight", type=float)
+        p.add_argument("--weight-floor", type=float, default=0.2)
+        p.add_argument("--weight-power", type=float, default=1.0)
         p.add_argument("--dry-run", action="store_true")
 
     p = sub.add_parser("smartgen-anomaly-eval", help="train/evaluate SmartGen Transformer anomaly detector with one synthetic pkl")

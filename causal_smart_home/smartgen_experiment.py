@@ -14,6 +14,9 @@ import random
 import sys
 
 from .smartguard_experiment import resolve_sweep_rows
+from .causal_filter import CausalConsistencyFilter
+from .causal_prior import CausalPrior
+from .schema import load_numeric_sequences
 
 
 VOCAB_DIC = {"fr": 223, "sp": 235, "us": 269}
@@ -64,6 +67,11 @@ class SmartGenAnomalyRunConfig:
     attack_pkl: Path | None = None
     target_test_pkl: Path | None = None
     validation_pkl: Path | None = None
+    weight_prior_json: Path | None = None
+    weight_top_k_edges: int = 30
+    weight_min_edge_weight: float | None = None
+    weight_floor: float = 0.2
+    weight_power: float = 1.0
 
 
 def default_smartgen_paths(smartgen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
@@ -207,6 +215,33 @@ def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path
     return DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 
+def _make_weighted_loader(
+    models_module,
+    env: str,
+    vocab_size: int,
+    data_file: str | Path,
+    weights_file: str | Path,
+    batch_size: int,
+):
+    from torch.utils.data import DataLoader, Dataset
+
+    data = np.array(_pad_sequences(vocab_size, load_pickle(data_file)))
+    dataset = _dataset_for_env(models_module, env)(vocab_size, data)
+    weights = np.asarray(load_pickle(weights_file), dtype=np.float32)
+    if len(weights) != len(dataset):
+        raise ValueError(f"weights length {len(weights)} does not match dataset length {len(dataset)}")
+
+    class _WeightedDataset(Dataset):
+        def __len__(self):
+            return len(dataset)
+
+        def __getitem__(self, index):
+            src, padding_mask, mask_v = dataset[index]
+            return src, padding_mask, mask_v, weights[index]
+
+    return DataLoader(_WeightedDataset(), batch_size=batch_size, shuffle=False)
+
+
 def _sequence_loss(output, src, mask_v, vocab_size: int, seq_len: int, criterion):
     import torch
 
@@ -218,6 +253,24 @@ def _sequence_loss(output, src, mask_v, vocab_size: int, seq_len: int, criterion
     return torch.sum(loss) / denom
 
 
+def _sequence_loss_per_sample(output, src, mask_v, vocab_size: int, seq_len: int, criterion):
+    import torch
+
+    loss = criterion(output.view(-1, vocab_size), src.view(-1))
+    loss = loss.reshape(-1, seq_len) * mask_v
+    denom = torch.sum(mask_v, dim=1).clamp_min(1).to(loss.dtype)
+    return torch.sum(loss, dim=1) / denom
+
+
+def _weighted_sequence_loss(output, src, mask_v, sample_weights, vocab_size: int, seq_len: int, criterion):
+    import torch
+
+    per_sample = _sequence_loss_per_sample(output, src, mask_v, vocab_size, seq_len, criterion)
+    weights = sample_weights.to(per_sample.device).to(per_sample.dtype)
+    denom = torch.sum(weights).clamp_min(1e-8)
+    return torch.sum(per_sample * weights) / denom
+
+
 def _train_adaptive(
     models_module,
     env: str,
@@ -227,6 +280,7 @@ def _train_adaptive(
     model_path: str | Path,
     seq_len: int,
     device,
+    train_weights_file: str | Path | None = None,
 ) -> list[dict[str, float]]:
     import torch
     import torch.nn as nn
@@ -241,18 +295,28 @@ def _train_adaptive(
     ).to(device)
     criterion = nn.CrossEntropyLoss(reduction="none")
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    train_loader = _make_loader(models_module, env, vocab_size, train_file, batch_size=32)
+    if train_weights_file is None:
+        train_loader = _make_loader(models_module, env, vocab_size, train_file, batch_size=32)
+    else:
+        train_loader = _make_weighted_loader(models_module, env, vocab_size, train_file, train_weights_file, batch_size=32)
 
     history: list[dict[str, float]] = []
     for epoch in range(epochs):
         total_loss = 0.0
         for batch in train_loader:
-            src, padding_mask, mask_v = batch
+            if train_weights_file is None:
+                src, padding_mask, mask_v = batch
+                sample_weights = None
+            else:
+                src, padding_mask, mask_v, sample_weights = batch
             src = src.to(device).long()
             mask_v = mask_v.to(device)
             padding_mask = padding_mask.to(device)
             output = model(src, src_key_padding_mask=padding_mask)
-            loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
+            if sample_weights is None:
+                loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
+            else:
+                loss = _weighted_sequence_loss(output, src, mask_v, sample_weights, vocab_size, seq_len, criterion)
             total_loss += loss.item()
             optimizer.zero_grad()
             loss.backward()
@@ -425,6 +489,78 @@ def _prepare_split(config: SmartGenAnomalyRunConfig, train_pkl: Path, vld_pkl: P
     return len(train), len(vld)
 
 
+def _causal_training_weights(
+    sequences: Sequence[Sequence[int]],
+    prior_json: str | Path,
+    top_k_edges: int,
+    min_edge_weight: float | None,
+    weight_floor: float,
+    weight_power: float,
+) -> tuple[list[float], list[dict[str, Any]]]:
+    if not 0.0 <= weight_floor <= 1.0:
+        raise ValueError("weight_floor must be between 0 and 1")
+    if weight_power <= 0:
+        raise ValueError("weight_power must be positive")
+    prior = CausalPrior.load(prior_json)
+    scorer = CausalConsistencyFilter(prior, top_k_edges=top_k_edges, min_edge_weight=min_edge_weight)
+    weights: list[float] = []
+    scores: list[dict[str, Any]] = []
+    for score in (scorer.score_sequence(seq) for seq in load_numeric_sequences(sequences)):
+        coverage = float(score["causal_coverage"])
+        weight = float(weight_floor + (1.0 - weight_floor) * (coverage ** weight_power))
+        score = dict(score)
+        score["sample_weight"] = weight
+        weights.append(weight)
+        scores.append(score)
+    return weights, scores
+
+
+def _prepare_training_weights(
+    config: SmartGenAnomalyRunConfig,
+    train_pkl: Path,
+    out_dir: Path,
+) -> dict[str, Any]:
+    if config.weight_prior_json is None:
+        return {
+            "weight_prior_json": "",
+            "train_weights_pkl": "",
+            "train_weight_scores_path": "",
+            "weight_top_k_edges": "",
+            "weight_min_edge_weight": "",
+            "weight_floor": "",
+            "weight_power": "",
+            "train_weight_min": "",
+            "train_weight_mean": "",
+            "train_weight_max": "",
+        }
+    train_sequences = load_pickle(train_pkl)
+    weights, scores = _causal_training_weights(
+        train_sequences,
+        prior_json=config.weight_prior_json,
+        top_k_edges=config.weight_top_k_edges,
+        min_edge_weight=config.weight_min_edge_weight,
+        weight_floor=config.weight_floor,
+        weight_power=config.weight_power,
+    )
+    weights_path = out_dir / f"{config.tag}_train_weights.pkl"
+    scores_path = out_dir / f"{config.tag}_train_weight_scores.json"
+    save_pickle(weights_path, weights)
+    scores_path.write_text(json.dumps(_jsonable(scores), ensure_ascii=False, indent=2), encoding="utf-8")
+    arr = np.asarray(weights, dtype=np.float32)
+    return {
+        "weight_prior_json": str(config.weight_prior_json.resolve()),
+        "train_weights_pkl": str(weights_path),
+        "train_weight_scores_path": str(scores_path),
+        "weight_top_k_edges": config.weight_top_k_edges,
+        "weight_min_edge_weight": config.weight_min_edge_weight if config.weight_min_edge_weight is not None else "",
+        "weight_floor": config.weight_floor,
+        "weight_power": config.weight_power,
+        "train_weight_min": float(np.min(arr)) if len(arr) else math.nan,
+        "train_weight_mean": float(np.mean(arr)) if len(arr) else math.nan,
+        "train_weight_max": float(np.max(arr)) if len(arr) else math.nan,
+    }
+
+
 def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[str, Any]:
     if config.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = config.cuda_visible_devices
@@ -447,6 +583,7 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
 
     synthetic_data = load_pickle(config.synthetic_pkl)
     train_size, vld_size = _prepare_split(config, train_pkl, vld_pkl)
+    weight_payload = _prepare_training_weights(config, train_pkl, out_dir)
 
     threshold_vld_pkl = (config.validation_pkl or vld_pkl).resolve()
     threshold_vld_size = len(load_pickle(threshold_vld_pkl)) if threshold_vld_pkl.exists() else None
@@ -477,6 +614,7 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         "attack_pkl": str((config.attack_pkl or defaults["attack_pkl"]).resolve()),
         "target_test_pkl": str((config.target_test_pkl or defaults["target_test_pkl"]).resolve()),
     }
+    payload.update(weight_payload)
     if config.dry_run:
         result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
@@ -495,6 +633,7 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         str(model_path),
         seq_len,
         device,
+        train_weights_file=weight_payload["train_weights_pkl"] or None,
     )
     learned_threshold, validation_losses = _find_threshold_adaptive(
         models_module,
@@ -547,6 +686,10 @@ SMARTGEN_SWEEP_FIELDS = [
     "F1 score",
     "learned_threshold",
     "device",
+    "weight_prior_json",
+    "weight_floor",
+    "weight_power",
+    "train_weight_mean",
     "result_path",
     "model_path",
 ]
@@ -568,6 +711,10 @@ def summarize_smartgen_payload(payload: dict[str, Any], slug: str) -> dict[str, 
         "F1 score": payload.get("F1 score", ""),
         "learned_threshold": payload.get("learned_threshold", ""),
         "device": payload.get("device", ""),
+        "weight_prior_json": payload.get("weight_prior_json", ""),
+        "weight_floor": payload.get("weight_floor", ""),
+        "weight_power": payload.get("weight_power", ""),
+        "train_weight_mean": payload.get("train_weight_mean", ""),
         "result_path": payload.get("result_path", ""),
         "model_path": payload.get("model_path", ""),
     }
@@ -617,6 +764,11 @@ def run_smartgen_anomaly_sweep(
             attack_pkl=base_config.attack_pkl,
             target_test_pkl=base_config.target_test_pkl,
             validation_pkl=base_config.validation_pkl,
+            weight_prior_json=base_config.weight_prior_json,
+            weight_top_k_edges=base_config.weight_top_k_edges,
+            weight_min_edge_weight=base_config.weight_min_edge_weight,
+            weight_floor=base_config.weight_floor,
+            weight_power=base_config.weight_power,
         )
         payload = run_smartgen_anomaly_experiment(config)
         summary_rows.append(summarize_smartgen_payload(payload, slug=slug))

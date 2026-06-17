@@ -8,6 +8,7 @@ from causal_smart_home.smartgen_experiment import (
     run_smartgen_anomaly_experiment,
     split_random_to_files,
 )
+from causal_smart_home.causal_prior import CausalPrior
 
 
 def _dump(path, obj):
@@ -78,3 +79,47 @@ def test_smartgen_anomaly_dry_run_writes_payload_and_split(tmp_path):
     saved = json.loads((tmp_path / "out" / "dry_smartgen_anomaly_eval.json").read_text())
     assert saved["dry_run"] is True
     assert saved["threshold_vld_pkl"] == str(validation.resolve())
+
+
+def test_smartgen_anomaly_dry_run_writes_causal_training_weights(tmp_path):
+    synthetic = tmp_path / "synthetic.pkl"
+    _dump(
+        synthetic,
+        [
+            [0, 0, 1, 10, 0, 1, 2, 20],
+            [0, 0, 2, 20, 0, 1, 1, 10],
+        ],
+    )
+    prior = CausalPrior(
+        matrix=[[0.0, 1.0], [0.0, 0.0]],
+        channel_to_key=["d:1", "d:2"],
+        lag=1,
+        sparse_threshold=0.0,
+    )
+    prior_path = tmp_path / "prior.json"
+    prior.save(prior_path)
+
+    config = SmartGenAnomalyRunConfig(
+        smartgen_root=tmp_path,
+        dataset="fr",
+        env="spring",
+        synthetic_pkl=synthetic,
+        out_dir=tmp_path / "out",
+        tag="weighted",
+        split_ratio=1.0,
+        cuda_visible_devices="0",
+        dry_run=True,
+        weight_prior_json=prior_path,
+        weight_floor=0.25,
+    )
+
+    payload = run_smartgen_anomaly_experiment(config)
+
+    assert payload["train_size"] == 2
+    assert payload["weight_prior_json"] == str(prior_path.resolve())
+    assert payload["train_weight_min"] == 0.25
+    assert payload["train_weight_max"] == 1.0
+    weights = pickle.load(open(tmp_path / "out" / "weighted_train_weights.pkl", "rb"))
+    assert sorted(weights) == [0.25, 1.0]
+    scores = json.loads((tmp_path / "out" / "weighted_train_weight_scores.json").read_text())
+    assert sorted(round(item["sample_weight"], 2) for item in scores) == [0.25, 1.0]
