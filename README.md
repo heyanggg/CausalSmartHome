@@ -1,6 +1,8 @@
 # CausalSmartHome
 
-`CausalSmartHome` 是一个面向智能家居行为漂移实验的非侵入式因果胶水层项目。它把 SmartGen 风格的合成行为数据、GCAD-style 的 Granger 因果先验，以及 SmartGuard/SmartGen 下游异常检测流程连接起来，但不修改原始项目主体代码。
+`CausalSmartHome` 是一个面向智能家居行为漂移实验的非侵入式因果胶水层项目。它把 SmartGen 风格的合成行为数据、GCAD-style 的 Granger 因果先验，以及 SmartGen/SmartGuard 下游异常检测流程连接起来，但不修改原始项目主体代码。
+
+当前主线定位已经收敛为：把 GCAD-style causal prior 加到 SmartGen 的生成数据质量控制里，再沿用 SmartGen 自己的 Transformer Autoencoder 异常检测流程评估。SmartGuard wrapper 保留为辅助对照，用来观察同一批合成数据迁移到另一个异常检测框架时会发生什么。
 
 本项目关注的问题是：
 
@@ -71,6 +73,7 @@ CausalSmartHome/
     causal_prompt.py      # SmartGen causal hints 构造
     causal_filter.py      # 因果一致性评分和过滤
     smartgen_adapter.py   # SmartGen pkl 数据约定和转移提示
+    smartgen_experiment.py # SmartGen Transformer Autoencoder 评估包装
     smartguard_adapter.py # SmartGuard 风格脚本 subprocess 包装
     pipeline.py           # 高层流程编排
     demo_data.py          # toy 数据
@@ -230,7 +233,31 @@ fr_spring_filter_true_k30_cov0p5_chk2_kept.pkl
 
 `sequence_length 40` 会把写出的 kept pkl 统一 pad/truncate 到 SmartGuard 训练数据的长度；如果只是分析 SmartGen 原始变长序列，可以省略这个参数。
 
-批量调用 SmartGuard 原流程训练和评估：
+沿用 SmartGen 原 Transformer Autoencoder 异常检测流程评估一份合成数据：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-eval \
+  --synthetic-pkl /home/heyang/projects/SmartGen/anomaly_detection_pipeline/synthetic_data/fr_spring_generation_SPPC_th=0.918_gpt-4o_seq_filter_true.pkl \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval \
+  --dataset fr \
+  --env spring \
+  --tag unfiltered_filter_true
+```
+
+批量把 causal filter sweep 产物送回 SmartGen 异常检测流程：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
+  --sweep-summary outputs/fr_winter_to_spring_device_h5e-05/filter_sweep/filter_sweep_summary.csv \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval \
+  --dataset fr \
+  --env spring \
+  --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3
+```
+
+如需先检查路径、样本数和 train/validation 分割，可以加 `--dry-run`。当前 SmartGen 原始异常检测代码在训练、找阈值和评估时直接调用 `.cuda()`，因此真实训练需要 CUDA 环境；无 GPU 时 dry-run 仍可验证数据链路。
+
+批量调用 SmartGuard 原流程训练和评估作为辅助对照：
 
 ```bash
 PYTHONPATH=. python -m causal_smart_home.cli smartguard-sweep-eval \
@@ -284,23 +311,33 @@ rejected: 18
 reject ratio: 13.14%
 ```
 
-下游异常检测结果：
+早期 SmartGen anomaly 快照：
 
 | Method | Recall | Precision | F1 |
 | --- | ---: | ---: | ---: |
 | Original SPPC | 0.9886 | 0.7311 | 0.8406 |
 | SPPC_CausalGCAD | 1.0000 | 0.6822 | 0.8111 |
 
-当前结论：
+这组早期结果说明：causal filter 会改变 Recall/Precision 权衡，但当时的 hard deletion 版本没有超过原 SPPC F1。因此它不能单独支撑“整体异常检测性能已经提升”的结论。
+
+当前主线修正后，重点改为比较 SmartGen 原生 Transformer Autoencoder 训练口径下的：
 
 ```text
-因果过滤在当前 FR winter -> spring 实验中提升了 Recall，但降低了 Precision。
-硬删除式 causal filter 尚未带来超过原 SPPC baseline 的 F1 提升。
+base / unfiltered filter_true / causal-filtered filter_true
 ```
 
-因此论文或报告中应表述为“因果过滤改变了召回率和精确率的权衡”，不要直接写成“已经提升整体异常检测性能”。
+新增 `smartgen-anomaly-eval` 与 `smartgen-anomaly-sweep-eval` 后，已完成 dry-run 链路验证：
 
-### SmartGuard wrapper 对照评估
+| Method | Synthetic Size | Train Size | Validation Size |
+| --- | ---: | ---: | ---: |
+| unfiltered_filter_true | 125 | 100 | 25 |
+| k30_cov0p5_chk1 | 109 | 87 | 22 |
+| k30_cov0p5_chk2 | 118 | 94 | 24 |
+| k30_cov0p5_chk3 | 121 | 96 | 25 |
+
+当前机器 CUDA 不可用，SmartGen 原代码又直接调用 `.cuda()`，因此正式 Transformer Autoencoder 训练指标需要在 GPU 环境下补跑。论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径，正式性能结论以该路径的 GPU 训练结果为准。
+
+### SmartGuard wrapper 对照评估（辅助）
 
 随后使用 `smartguard-sweep-eval` 在同一 SmartGuard wrapper 口径下补跑了 `base_only`、未过滤 `filter_true` 和三档 causal filter 对照。
 
@@ -338,7 +375,11 @@ PYTHONPATH=. pytest -q
 当前验证结果：
 
 ```text
-8 passed, 1 warning
+PYTHONPATH=. pytest -q
+8 passed, 3 skipped
+
+/home/heyang/miniconda3/envs/smartguard_env/bin/python -m pytest -q
+11 passed, 1 warning
 ```
 
 如果某个环境没有安装 `torch`，依赖因果训练的测试会自动跳过，非 torch 测试仍可运行。
@@ -347,6 +388,7 @@ PYTHONPATH=. pytest -q
 
 - `causal_prior.py` 是轻量 GCAD-style 实现，迁移了 GCAD 的梯度因果思想，但不是直接运行原 GCAD 实验脚本。
 - 当前证据主要证明工程链路跑通，还不能证明最终异常检测 F1 已经提升。
+- SmartGen 原异常检测脚本直接调用 `.cuda()`；真实训练需要 CUDA 环境，当前无 GPU 机器只能做 dry-run 链路验证。
 - hard deletion 可能让训练/验证分布变窄，导致 anomaly threshold 过低并增加误报。
 - 后续应重点尝试阈值校准、软权重过滤、多数据集验证，以及被过滤样本的可解释分析。
 

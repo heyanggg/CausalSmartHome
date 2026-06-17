@@ -18,6 +18,12 @@ from .smartguard_experiment import (
     run_smartguard_experiment,
     run_smartguard_sweep,
 )
+from .smartgen_experiment import (
+    SmartGenAnomalyRunConfig,
+    default_synthetic_pkl,
+    run_smartgen_anomaly_experiment,
+    run_smartgen_anomaly_sweep,
+)
 from .demo_data import make_toy_normal_sequences, make_toy_generated_candidates
 
 
@@ -202,6 +208,61 @@ def cmd_smartguard_sweep_eval(args) -> None:
     print(f"saved {out / 'smartguard_sweep_eval_summary.json'}")
 
 
+def _smartgen_anomaly_config_from_args(args, synthetic_pkl: str | Path, tag: str) -> SmartGenAnomalyRunConfig:
+    return SmartGenAnomalyRunConfig(
+        smartgen_root=Path(args.smartgen_root).resolve(),
+        dataset=args.dataset,
+        env=args.env,
+        synthetic_pkl=Path(synthetic_pkl).resolve(),
+        out_dir=Path(args.out_dir).resolve(),
+        tag=tag,
+        threshold=args.threshold,
+        threshold_percentage=args.threshold_percentage,
+        method=args.method,
+        model=args.llm_model,
+        epochs=args.epochs,
+        seed=args.seed,
+        split_ratio=args.split_ratio,
+        dry_run=args.dry_run,
+        attack_pkl=Path(args.attack_pkl).resolve() if args.attack_pkl else None,
+        target_test_pkl=Path(args.target_test_pkl).resolve() if args.target_test_pkl else None,
+    )
+
+
+def cmd_smartgen_anomaly_eval(args) -> None:
+    synthetic_pkl = args.synthetic_pkl
+    if synthetic_pkl is None:
+        synthetic_pkl = default_synthetic_pkl(
+            args.smartgen_root,
+            args.dataset,
+            args.env,
+            method=args.method,
+            model=args.llm_model,
+            threshold=args.threshold,
+        )
+    tag = args.tag or Path(synthetic_pkl).stem
+    config = _smartgen_anomaly_config_from_args(args, synthetic_pkl, tag)
+    payload = run_smartgen_anomaly_experiment(config)
+    print(f"saved {payload['result_path']}")
+    if "F1 score" in payload:
+        print(
+            "metrics "
+            f"recall={payload['recall']:.4f} "
+            f"precision={payload['precision']:.4f} "
+            f"f1={payload['F1 score']:.4f}"
+        )
+
+
+def cmd_smartgen_anomaly_sweep_eval(args) -> None:
+    slugs = _parse_str_list(args.select_slugs)
+    base_config = _smartgen_anomaly_config_from_args(args, args.sweep_summary, args.tag)
+    rows = run_smartgen_anomaly_sweep(args.sweep_summary, base_config, slugs=slugs)
+    out = Path(args.out_dir)
+    print(f"evaluated={len(rows)}")
+    print(f"saved {out / 'smartgen_anomaly_sweep_summary.csv'}")
+    print(f"saved {out / 'smartgen_anomaly_sweep_summary.json'}")
+
+
 def cmd_demo(args) -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -323,6 +384,35 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--select-slugs", default="k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3")
     p.add_argument("--tag", default="causal_filter")
     p.set_defaults(func=cmd_smartguard_sweep_eval)
+
+    def add_smartgen_anomaly_common_options(p) -> None:
+        p.add_argument("--smartgen-root", default="/home/heyang/projects/SmartGen")
+        p.add_argument("--dataset", default="fr")
+        p.add_argument("--env", default="spring", choices=["spring", "night", "multiple"])
+        p.add_argument("--out-dir", required=True)
+        p.add_argument("--threshold")
+        p.add_argument("--threshold-percentage", type=float)
+        p.add_argument("--method", default="SPPC")
+        p.add_argument("--llm-model", default="gpt-4o")
+        p.add_argument("--epochs", type=int, default=15)
+        p.add_argument("--seed", type=int, default=2024)
+        p.add_argument("--split-ratio", type=float, default=0.8)
+        p.add_argument("--attack-pkl")
+        p.add_argument("--target-test-pkl")
+        p.add_argument("--dry-run", action="store_true")
+
+    p = sub.add_parser("smartgen-anomaly-eval", help="train/evaluate SmartGen Transformer anomaly detector with one synthetic pkl")
+    add_smartgen_anomaly_common_options(p)
+    p.add_argument("--synthetic-pkl")
+    p.add_argument("--tag")
+    p.set_defaults(func=cmd_smartgen_anomaly_eval)
+
+    p = sub.add_parser("smartgen-anomaly-sweep-eval", help="train/evaluate SmartGen anomaly detector for selected filter sweep rows")
+    add_smartgen_anomaly_common_options(p)
+    p.add_argument("--sweep-summary", required=True)
+    p.add_argument("--select-slugs", default="k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3")
+    p.add_argument("--tag", default="causal_filter")
+    p.set_defaults(func=cmd_smartgen_anomaly_sweep_eval)
 
     p = sub.add_parser("demo", help="run toy end-to-end demo")
     p.add_argument("--out-dir", default="outputs/demo")
