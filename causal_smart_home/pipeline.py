@@ -36,6 +36,7 @@ class CausalSmartHomePipeline:
         epochs: int = 80,
         sparse_threshold: float = 0.0,
         level: str = "action",
+        batch_size: int = 64,
         sample_limit: int | None = 64,
     ) -> CausalPrior:
         tensorizer = EventTensorizer(level=level, count_mode="binary", decay=0.2)
@@ -47,6 +48,7 @@ class CausalSmartHomePipeline:
             lag=lag,
             epochs=epochs,
             sparse_threshold=sparse_threshold,
+            batch_size=batch_size,
             sample_limit=sample_limit,
         )
         prior.meta = prior.meta or {}

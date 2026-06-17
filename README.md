@@ -189,6 +189,19 @@ PYTHONPATH=. python -m causal_smart_home.cli build-prior \
   --sparse-threshold 0.00005
 ```
 
+US winter train 较大时，可以调大 batch size 提升 GPU prior 训练吞吐：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli build-prior \
+  --train-pkl /home/heyang/projects/SmartGen/SmartGen/IoT_data/us/winter/split_trn.pkl \
+  --out-dir outputs/us_winter_to_spring_device_h5e-05 \
+  --lag 4 \
+  --epochs 40 \
+  --level device \
+  --sparse-threshold 0.00005 \
+  --batch-size 4096
+```
+
 构造带因果提示的 SmartGen prompt：
 
 ```bash
@@ -445,6 +458,19 @@ SP 结论与 FR 不同：未过滤 SmartGen baseline 已经较强，三档 hard-
 
 再进一步实现了 causal soft weighting：保留全部 140 条 synthetic sequences，用 `weight = floor + (1 - floor) * causal_coverage ** power` 给训练 loss 加权。SP 最佳 weighted 结果为 `top_k=30, floor=0.2, power=1`，F1 达到 0.9189，明显好于 hard deletion，但仍略低于未过滤 baseline 的 0.9239。详细记录见 `docs/task9_sp_weighted_smartgen.md`。
 
+### US winter -> spring SmartGen 扩展
+
+US winter -> spring 已按同一流程完成。US baseline 本身很强，hard deletion 和 mild hard deletion 均未超过 baseline；soft weighting 保持了 baseline 水平但没有额外提升。
+
+| Method | Synthetic Size | Threshold | Recall | Precision | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| unfiltered_filter_true | 94 | 0.1698 | 1.0000 | 0.8697 | 0.9303 |
+| best hard deletion (`k30_cov0p5_chk2`) | 55 | 0.4494 | 1.0000 | 0.8595 | 0.9244 |
+| best mild hard deletion (`k30_cov0p3_chk3`) | 74 | 0.2161 | 1.0000 | 0.8593 | 0.9243 |
+| soft weighting (`k30_floor0p2`) | 94 | 0.1678 | 1.0000 | 0.8697 | 0.9303 |
+
+三数据集当前结论是：FR 是 hard deletion 正例；SP/US 的 baseline 已较强，hard deletion 不稳，soft weighting 更安全但不带来额外提升。详细记录见 `docs/task11_us_smartgen_anomaly.md`。
+
 ### SmartGuard wrapper 对照评估（辅助）
 
 随后使用 `smartguard-sweep-eval` 在同一 SmartGuard wrapper 口径下补跑了 `base_only`、未过滤 `filter_true` 和三档 causal filter 对照。
@@ -495,7 +521,7 @@ PYTHONPATH=. pytest -q
 ## 已知限制
 
 - `causal_prior.py` 是轻量 GCAD-style 实现，迁移了 GCAD 的梯度因果思想，但不是直接运行原 GCAD 实验脚本。
-- 当前证据显示 FR winter -> spring 是正例，SP winter -> spring 是 hard deletion 未提升的诊断负例；仍需扩展到 US 和 night/multiple 才能说明普遍性。
+- 当前证据显示 FR winter -> spring 是 hard deletion 正例，SP/US winter -> spring 是 baseline 强、causal post-filter 不提升的边界案例；仍需扩展到 night/multiple 才能说明普遍性。
 - SmartGen 原异常检测脚本直接调用 `.cuda()`；CausalSmartHome wrapper 已改为 CPU/GPU 自适应，但 CPU 跑完整 sweep 会比 GPU 慢。
 - hard deletion 可能让训练/验证分布变窄，导致 anomaly threshold 过低并增加误报。
 - 后续应重点尝试阈值校准、软权重过滤、多数据集验证，以及被过滤样本的可解释分析。

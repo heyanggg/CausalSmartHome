@@ -75,6 +75,7 @@ def cmd_build_prior(args) -> None:
         epochs=args.epochs,
         sparse_threshold=args.sparse_threshold,
         level=args.level,
+        batch_size=args.batch_size,
     )
     out = Path(args.out_dir) / "causal_prior.json"
     prior.save(out)
@@ -314,6 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lag", type=int, default=4)
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--sparse-threshold", type=float, default=0.0)
+    p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--level", choices=["action", "device", "device_action"], default="action")
     p.set_defaults(func=cmd_build_prior)
 
