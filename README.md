@@ -120,6 +120,23 @@ python -m pip install -e .[dev]
 
 如果不做 editable install，请在项目根目录使用 `PYTHONPATH=.` 运行命令。
 
+## GPU / CUDA 优先
+
+SmartGen anomaly 相关 CLI 默认优先使用服务器第 0 张 NVIDIA GPU：
+
+```text
+--device cuda
+--cuda-visible-devices 0
+```
+
+这里 GPU 是硬件，CUDA 是 PyTorch 调用 NVIDIA GPU 的计算后端。也就是说，本项目正式实验默认策略是“用 CUDA 调用第 0 张 GPU”。如果只想自动探测，可传 `--device auto`；如果临时排查或没有 GPU，可显式传 `--device cpu`。
+
+在受限 shell 或沙箱里，`nvidia-smi` 可能看不到 `/dev/nvidia*`；在真实服务器终端中应能看到：
+
+```text
+NVIDIA GeForce RTX 3090
+```
+
 ## external_sources 设置
 
 检查软链接：
@@ -242,7 +259,8 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-eval \
   --dataset fr \
   --env spring \
   --tag unfiltered_filter_true \
-  --device auto
+  --device cuda \
+  --cuda-visible-devices 0
 ```
 
 批量把 causal filter sweep 产物送回 SmartGen 异常检测流程：
@@ -254,22 +272,24 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
   --dataset fr \
   --env spring \
   --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
-  --device auto
+  --device cuda \
+  --cuda-visible-devices 0
 ```
 
-如需先检查路径、样本数和 train/validation 分割，可以加 `--dry-run`。CausalSmartHome 的 wrapper 复用 SmartGen 的 `TransformerAutoencoder` 和 Dataset 定义，但训练/阈值/评估循环是 CPU/GPU 自适应的；有 GPU 用 CUDA，没有 GPU 会退到 CPU。
+如需先检查路径、样本数和 train/validation 分割，可以加 `--dry-run`。CausalSmartHome 的 wrapper 复用 SmartGen 的 `TransformerAutoencoder` 和 Dataset 定义，但训练/阈值/评估循环是 CPU/GPU 自适应的；服务器资源说明要求只用第一张卡时，传入 `--cuda-visible-devices 0 --device cuda`。
 
 如果要让多个模型使用同一份 validation 数据做阈值校准，可以加 `--validation-pkl`：
 
 ```bash
 PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
   --sweep-summary outputs/fr_winter_to_spring_device_h5e-05/filter_sweep/filter_sweep_summary.csv \
-  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_cpu_common_vld \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_gpu_common_vld \
   --dataset fr \
   --env spring \
   --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
-  --device cpu \
-  --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_cpu/unfiltered_filter_true_vld.pkl
+  --device cuda \
+  --cuda-visible-devices 0 \
+  --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_gpu/unfiltered_filter_true_vld.pkl
 ```
 
 批量调用 SmartGuard 原流程训练和评估作为辅助对照：
@@ -341,31 +361,26 @@ reject ratio: 13.14%
 base / unfiltered filter_true / causal-filtered filter_true
 ```
 
-新增 `smartgen-anomaly-eval` 与 `smartgen-anomaly-sweep-eval` 后，已在 CPU 上完成 SmartGen Transformer Autoencoder 正式评估：
+新增 `smartgen-anomaly-eval` 与 `smartgen-anomaly-sweep-eval` 后，已在 GPU 上完成 SmartGen Transformer Autoencoder 正式评估：
 
-默认各自 synthetic validation 校准：
-
-| Method | Synthetic Size | Threshold | Recall | Precision | F1 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| unfiltered_filter_true | 125 | 1.7035 | 0.9773 | 0.7478 | 0.8473 |
-| k30_cov0p5_chk1 | 109 | 0.0004 | 1.0000 | 0.6331 | 0.7753 |
-| k30_cov0p5_chk2 | 118 | 0.0005 | 1.0000 | 0.6667 | 0.8000 |
-| k30_cov0p5_chk3 | 121 | 0.0003 | 1.0000 | 0.6331 | 0.7753 |
-
-这组结果显示：filtered variants 的 validation loss 太低，阈值接近 0，导致测试时误报偏多。
-
-使用未过滤 `filter_true` 的 validation split 作为公共阈值校准集后：
+未过滤 SmartGen `filter_true` 基线：
 
 | Method | Synthetic Size | Threshold | Recall | Precision | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| unfiltered_filter_true | 125 | 1.7035 | 0.9773 | 0.7478 | 0.8473 |
-| k30_cov0p5_chk1 | 109 | 1.6970 | 0.9773 | 0.7679 | 0.8600 |
-| k30_cov0p5_chk2 | 118 | 0.0098 | 1.0000 | 0.6822 | 0.8111 |
-| k30_cov0p5_chk3 | 121 | 0.0055 | 1.0000 | 0.6822 | 0.8111 |
+| unfiltered_filter_true | 125 | 1.3921 | 0.9886 | 0.7311 | 0.8406 |
 
-当前最有价值的结论是：causal filter 本身有潜力改善 SmartGen 生成数据，最佳 `k30_cov0p5_chk1` 在公共 validation 校准后 F1 从未过滤的 0.8473 提升到 0.8600；但 hard deletion 需要配套阈值校准，否则会因为 validation 分布过窄而牺牲 Precision。
+使用未过滤 `filter_true` 的 validation split 作为公共阈值校准集后，三档 causal filter 结果为：
 
-论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径；在 FR winter -> spring 的 CPU adaptive 复现实验中，causal filtering + common validation calibration 比未过滤 SmartGen `filter_true` 取得更高 F1。
+| Method | Synthetic Size | Threshold | Recall | Precision | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| unfiltered_filter_true | 125 | 1.3921 | 0.9886 | 0.7311 | 0.8406 |
+| k30_cov0p5_chk1 | 109 | 1.6313 | 0.9886 | 0.7768 | 0.8700 |
+| k30_cov0p5_chk2 | 118 | 0.0136 | 1.0000 | 0.6822 | 0.8111 |
+| k30_cov0p5_chk3 | 121 | 0.0066 | 1.0000 | 0.6822 | 0.8111 |
+
+当前最有价值的结论是：causal filter 本身有潜力改善 SmartGen 生成数据，最佳 `k30_cov0p5_chk1` 在公共 validation 校准后 F1 从未过滤的 0.8406 提升到 0.8700；但 hard deletion 需要配套阈值校准，否则会因为 validation 分布过窄而牺牲 Precision。
+
+论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径；在 FR winter -> spring 的 GPU 复现实验中，causal filtering + common validation calibration 比未过滤 SmartGen `filter_true` 取得更高 F1。
 
 ### SmartGuard wrapper 对照评估（辅助）
 

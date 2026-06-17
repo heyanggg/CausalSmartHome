@@ -224,6 +224,7 @@ def _smartgen_anomaly_config_from_args(args, synthetic_pkl: str | Path, tag: str
         seed=args.seed,
         split_ratio=args.split_ratio,
         device=args.device,
+        cuda_visible_devices=args.cuda_visible_devices,
         dry_run=args.dry_run,
         attack_pkl=Path(args.attack_pkl).resolve() if args.attack_pkl else None,
         target_test_pkl=Path(args.target_test_pkl).resolve() if args.target_test_pkl else None,
@@ -399,7 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--epochs", type=int, default=15)
         p.add_argument("--seed", type=int, default=2024)
         p.add_argument("--split-ratio", type=float, default=0.8)
-        p.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
+        p.add_argument("--device", default="cuda", choices=["auto", "cpu", "cuda"])
+        p.add_argument("--cuda-visible-devices", default="0")
         p.add_argument("--attack-pkl")
         p.add_argument("--target-test-pkl")
         p.add_argument("--validation-pkl")

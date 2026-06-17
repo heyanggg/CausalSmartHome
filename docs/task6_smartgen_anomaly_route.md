@@ -38,7 +38,7 @@ smartgen-anomaly-sweep-eval
 1. 读取 SmartGen 或 CausalSmartHome 产出的 synthetic pkl。
 2. 按 SmartGen 原逻辑切分 train / validation。
 3. 复用 SmartGen `models1.py` 中的 `TransformerAutoencoder` 和 Dataset 定义。
-4. 在 CausalSmartHome 中执行 CPU/GPU 自适应的 train / find threshold / evaluate 循环。
+4. 在 CausalSmartHome 中执行 CUDA-first 的 train / find threshold / evaluate 循环，默认使用第 0 张 NVIDIA GPU。
 5. 支持用 `--validation-pkl` 指定公共 validation set 做阈值校准。
 6. 把模型、分割数据和结果写到 CausalSmartHome 的 `outputs/`，不写回 SmartGen 源目录。
 
@@ -46,49 +46,53 @@ smartgen-anomaly-sweep-eval
 
 ## 3. 正式 SmartGen anomaly 结果
 
-当前机器没有 CUDA：
+当前服务器在非沙箱终端可见第 0 张 GPU：
 
 ```text
-torch.cuda.is_available(): False
+NVIDIA GeForce RTX 3090
+torch.cuda.is_available(): True
+CUDA_VISIBLE_DEVICES: 0
 ```
 
-CausalSmartHome wrapper 已绕开 SmartGen 原脚本里的硬编码 `.cuda()`，在 CPU 上跑完了 FR winter -> spring 的 SmartGen Transformer Autoencoder 评估。
+CausalSmartHome wrapper 已绕开 SmartGen 原脚本里的硬编码 `.cuda()`，并默认用 CUDA 调用第 0 张 GPU 跑 FR winter -> spring 的 SmartGen Transformer Autoencoder 评估。
 
-### 默认各自 validation
+### 未过滤基线
 
-每个方法用自己的 synthetic split 训练并校准阈值：
+未过滤 SmartGen `filter_true` 基线：
 
 | Method | Synthetic Size | Train | Validation | Threshold | Recall | Precision | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| unfiltered_filter_true | 125 | 100 | 25 | 1.7035 | 0.9773 | 0.7478 | 0.8473 |
-| k30_cov0p5_chk1 | 109 | 87 | 22 | 0.0004 | 1.0000 | 0.6331 | 0.7753 |
-| k30_cov0p5_chk2 | 118 | 94 | 24 | 0.0005 | 1.0000 | 0.6667 | 0.8000 |
-| k30_cov0p5_chk3 | 121 | 96 | 25 | 0.0003 | 1.0000 | 0.6331 | 0.7753 |
+| unfiltered_filter_true | 125 | 100 | 25 | 1.3921 | 0.9886 | 0.7311 | 0.8406 |
 
-这组结果不是简单说明 causal filter 失败，而是暴露出阈值校准问题：filtered synthetic validation 太容易被模型重构，validation loss 接近 0，导致 anomaly threshold 极低，测试时 Precision 被误报拖低。
+这个数值与早期 SmartGen 原生结果对齐，说明 GPU 复现实验口径是可信的。
 
 输出目录：
 
 ```text
-outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_cpu/
-outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_cpu/
+outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_gpu/
 ```
 
 ### 公共 validation 校准
 
-用未过滤 `filter_true` 的 validation split 作为公共阈值校准集后：
+用未过滤 `filter_true` 的 validation split 作为公共阈值校准集后，三档 causal filter 结果为：
 
 | Method | Synthetic Size | Threshold | Recall | Precision | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| unfiltered_filter_true | 125 | 1.7035 | 0.9773 | 0.7478 | 0.8473 |
-| k30_cov0p5_chk1 | 109 | 1.6970 | 0.9773 | 0.7679 | 0.8600 |
-| k30_cov0p5_chk2 | 118 | 0.0098 | 1.0000 | 0.6822 | 0.8111 |
-| k30_cov0p5_chk3 | 121 | 0.0055 | 1.0000 | 0.6822 | 0.8111 |
+| unfiltered_filter_true | 125 | 1.3921 | 0.9886 | 0.7311 | 0.8406 |
+| k30_cov0p5_chk1 | 109 | 1.6313 | 0.9886 | 0.7768 | 0.8700 |
+| k30_cov0p5_chk2 | 118 | 0.0136 | 1.0000 | 0.6822 | 0.8111 |
+| k30_cov0p5_chk3 | 121 | 0.0066 | 1.0000 | 0.6822 | 0.8111 |
 
 这里 `k30_cov0p5_chk1` 超过了未过滤版本，说明 causal filter 的收益可能被阈值校准方式遮住。当前最准确的结论是：
 
 ```text
-Causal filtering can improve SmartGen synthetic data under the native Transformer Autoencoder evaluation when paired with a less brittle validation calibration.
+Causal filtering can improve SmartGen synthetic data under the native Transformer Autoencoder evaluation when paired with common validation calibration.
+```
+
+输出目录：
+
+```text
+outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_gpu_common_vld/
 ```
 
 ## 4. 正式命令
@@ -102,7 +106,8 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-eval \
   --dataset fr \
   --env spring \
   --tag unfiltered_filter_true \
-  --device auto
+  --device cuda \
+  --cuda-visible-devices 0
 ```
 
 causal filter sweep：
@@ -114,7 +119,8 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
   --dataset fr \
   --env spring \
   --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
-  --device auto
+  --device cuda \
+  --cuda-visible-devices 0
 ```
 
 公共 validation 校准：
@@ -122,12 +128,13 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
 ```bash
 PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
   --sweep-summary outputs/fr_winter_to_spring_device_h5e-05/filter_sweep/filter_sweep_summary.csv \
-  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_cpu_common_vld \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_gpu_common_vld \
   --dataset fr \
   --env spring \
   --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
-  --device cpu \
-  --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_cpu/unfiltered_filter_true_vld.pkl
+  --device cuda \
+  --cuda-visible-devices 0 \
+  --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_gpu/unfiltered_filter_true_vld.pkl
 ```
 
 建议接下来扩展到 SP/US 和 night/multiple，确认这个提升不是 FR spring 的偶然现象。

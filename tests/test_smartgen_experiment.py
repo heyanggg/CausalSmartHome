@@ -58,6 +58,7 @@ def test_smartgen_anomaly_dry_run_writes_payload_and_split(tmp_path):
         synthetic_pkl=synthetic,
         out_dir=tmp_path / "out",
         tag="dry",
+        cuda_visible_devices="0",
         dry_run=True,
         attack_pkl=attack,
         target_test_pkl=target,
@@ -70,7 +71,8 @@ def test_smartgen_anomaly_dry_run_writes_payload_and_split(tmp_path):
     assert payload["train_size"] == 4
     assert payload["vld_size"] == 1
     assert payload["threshold_vld_size"] == 2
-    assert payload["requested_device"] == "auto"
+    assert payload["requested_device"] == "cuda"
+    assert payload["cuda_visible_devices"] == "0"
     assert (tmp_path / "out" / "dry_train.pkl").exists()
     assert (tmp_path / "out" / "dry_vld.pkl").exists()
     saved = json.loads((tmp_path / "out" / "dry_smartgen_anomaly_eval.json").read_text())

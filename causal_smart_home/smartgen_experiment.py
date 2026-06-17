@@ -8,6 +8,7 @@ import importlib.util
 import json
 import math
 import numpy as np
+import os
 import pickle
 import random
 import sys
@@ -57,7 +58,8 @@ class SmartGenAnomalyRunConfig:
     epochs: int = 15
     seed: int = 2024
     split_ratio: float = 0.8
-    device: str = "auto"
+    device: str = "cuda"
+    cuda_visible_devices: str | None = "0"
     dry_run: bool = False
     attack_pkl: Path | None = None
     target_test_pkl: Path | None = None
@@ -424,6 +426,9 @@ def _prepare_split(config: SmartGenAnomalyRunConfig, train_pkl: Path, vld_pkl: P
 
 
 def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[str, Any]:
+    if config.cuda_visible_devices is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = config.cuda_visible_devices
+
     smartgen_root = config.smartgen_root.resolve()
     defaults = default_smartgen_paths(smartgen_root, config.dataset, config.env)
     threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, config.env)]
@@ -457,6 +462,7 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         "epochs": config.epochs,
         "split_ratio": config.split_ratio,
         "requested_device": config.device,
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "dry_run": config.dry_run,
         "synthetic_pkl": str(config.synthetic_pkl.resolve()),
         "synthetic_size": len(synthetic_data),
@@ -606,6 +612,7 @@ def run_smartgen_anomaly_sweep(
             seed=base_config.seed,
             split_ratio=base_config.split_ratio,
             device=base_config.device,
+            cuda_visible_devices=base_config.cuda_visible_devices,
             dry_run=base_config.dry_run,
             attack_pkl=base_config.attack_pkl,
             target_test_pkl=base_config.target_test_pkl,
