@@ -421,6 +421,8 @@ outputs/sp_winter_to_spring_device_h0/
 
 SP 结论与 FR 不同：未过滤 SmartGen baseline 已经较强，三档 hard-deletion causal filter 均未超过 baseline。详细记录见 `docs/task7_sp_smartgen_anomaly.md`。
 
+随后补做了 SP 被删样本分布诊断和温和过滤复测。被删样本通常比 kept 样本更远离 spring normal test，但即使只删除 6-15 条样本，filtered model 对 baseline validation 的重构 loss 也会从 0.0007 升到 1.9021-9.9090，最佳温和变体 F1 只有 0.8118。因此 SP 的主要问题不是简单参数过狠，而是 hard deletion 会破坏 SmartGen synthetic training distribution。详细记录见 `docs/task8_sp_filter_diagnostics.md`。
+
 ### SmartGuard wrapper 对照评估（辅助）
 
 随后使用 `smartguard-sweep-eval` 在同一 SmartGuard wrapper 口径下补跑了 `base_only`、未过滤 `filter_true` 和三档 causal filter 对照。
