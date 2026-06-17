@@ -292,6 +292,24 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
   --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_gpu/unfiltered_filter_true_vld.pkl
 ```
 
+如果要做 soft weighting 而不是 hard deletion，可以在 SmartGen anomaly eval 中传入 causal prior。该模式保留全部 synthetic sequences，只用 causal coverage 调整训练 loss 权重：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-eval \
+  --synthetic-pkl /home/heyang/projects/SmartGen/anomaly_detection_pipeline/synthetic_data/fr_spring_generation_SPPC_th=0.918_gpt-4o_seq_filter_true.pkl \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_weighted_eval_gpu_common_vld \
+  --dataset fr \
+  --env spring \
+  --tag weighted_k30_floor0p2_power1 \
+  --device cuda \
+  --cuda-visible-devices 0 \
+  --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_gpu/unfiltered_filter_true_vld.pkl \
+  --weight-prior-json outputs/fr_winter_to_spring_device_h5e-05/causal_prior.json \
+  --weight-top-k-edges 30 \
+  --weight-floor 0.2 \
+  --weight-power 1.0
+```
+
 批量调用 SmartGuard 原流程训练和评估作为辅助对照：
 
 ```bash
@@ -381,6 +399,8 @@ base / unfiltered filter_true / causal-filtered filter_true
 当前最有价值的结论是：causal filter 本身有潜力改善 SmartGen 生成数据，最佳 `k30_cov0p5_chk1` 在公共 validation 校准后 F1 从未过滤的 0.8406 提升到 0.8700；但 hard deletion 需要配套阈值校准，否则会因为 validation 分布过窄而牺牲 Precision。
 
 论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径；在 FR winter -> spring 的 GPU 复现实验中，causal filtering + common validation calibration 比未过滤 SmartGen `filter_true` 取得更高 F1。
+
+FR 上也回测了 soft weighting。最佳 weighted 设置 `top_k=30, floor=0.2, power=1` 的 F1 为 0.8571，高于未过滤 baseline 的 0.8406，但低于 hard deletion 最佳 0.8700。详细记录见 `docs/task10_fr_weighted_smartgen.md`。
 
 ### SP winter -> spring SmartGen 扩展
 
