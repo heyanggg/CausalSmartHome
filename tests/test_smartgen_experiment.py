@@ -48,6 +48,8 @@ def test_smartgen_anomaly_dry_run_writes_payload_and_split(tmp_path):
     target = tmp_path / "target.pkl"
     _dump(attack, [([1, 2, 3, 4], 1)])
     _dump(target, [[1, 2, 3, 4]])
+    validation = tmp_path / "validation.pkl"
+    _dump(validation, [[2, 3, 4, 5], [3, 4, 5, 6]])
 
     config = SmartGenAnomalyRunConfig(
         smartgen_root=tmp_path,
@@ -59,6 +61,7 @@ def test_smartgen_anomaly_dry_run_writes_payload_and_split(tmp_path):
         dry_run=True,
         attack_pkl=attack,
         target_test_pkl=target,
+        validation_pkl=validation,
     )
 
     payload = run_smartgen_anomaly_experiment(config)
@@ -66,7 +69,10 @@ def test_smartgen_anomaly_dry_run_writes_payload_and_split(tmp_path):
     assert payload["synthetic_size"] == 5
     assert payload["train_size"] == 4
     assert payload["vld_size"] == 1
+    assert payload["threshold_vld_size"] == 2
+    assert payload["requested_device"] == "auto"
     assert (tmp_path / "out" / "dry_train.pkl").exists()
     assert (tmp_path / "out" / "dry_vld.pkl").exists()
     saved = json.loads((tmp_path / "out" / "dry_smartgen_anomaly_eval.json").read_text())
     assert saved["dry_run"] is True
+    assert saved["threshold_vld_pkl"] == str(validation.resolve())

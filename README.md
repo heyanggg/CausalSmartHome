@@ -241,7 +241,8 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-eval \
   --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval \
   --dataset fr \
   --env spring \
-  --tag unfiltered_filter_true
+  --tag unfiltered_filter_true \
+  --device auto
 ```
 
 批量把 causal filter sweep 产物送回 SmartGen 异常检测流程：
@@ -252,10 +253,24 @@ PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
   --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval \
   --dataset fr \
   --env spring \
-  --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3
+  --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
+  --device auto
 ```
 
-如需先检查路径、样本数和 train/validation 分割，可以加 `--dry-run`。当前 SmartGen 原始异常检测代码在训练、找阈值和评估时直接调用 `.cuda()`，因此真实训练需要 CUDA 环境；无 GPU 时 dry-run 仍可验证数据链路。
+如需先检查路径、样本数和 train/validation 分割，可以加 `--dry-run`。CausalSmartHome 的 wrapper 复用 SmartGen 的 `TransformerAutoencoder` 和 Dataset 定义，但训练/阈值/评估循环是 CPU/GPU 自适应的；有 GPU 用 CUDA，没有 GPU 会退到 CPU。
+
+如果要让多个模型使用同一份 validation 数据做阈值校准，可以加 `--validation-pkl`：
+
+```bash
+PYTHONPATH=. python -m causal_smart_home.cli smartgen-anomaly-sweep-eval \
+  --sweep-summary outputs/fr_winter_to_spring_device_h5e-05/filter_sweep/filter_sweep_summary.csv \
+  --out-dir outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_sweep_eval_cpu_common_vld \
+  --dataset fr \
+  --env spring \
+  --select-slugs k30_cov0p5_chk1,k30_cov0p5_chk2,k30_cov0p5_chk3 \
+  --device cpu \
+  --validation-pkl outputs/fr_winter_to_spring_device_h5e-05/smartgen_anomaly_eval_cpu/unfiltered_filter_true_vld.pkl
+```
 
 批量调用 SmartGuard 原流程训练和评估作为辅助对照：
 
@@ -326,16 +341,31 @@ reject ratio: 13.14%
 base / unfiltered filter_true / causal-filtered filter_true
 ```
 
-新增 `smartgen-anomaly-eval` 与 `smartgen-anomaly-sweep-eval` 后，已完成 dry-run 链路验证：
+新增 `smartgen-anomaly-eval` 与 `smartgen-anomaly-sweep-eval` 后，已在 CPU 上完成 SmartGen Transformer Autoencoder 正式评估：
 
-| Method | Synthetic Size | Train Size | Validation Size |
-| --- | ---: | ---: | ---: |
-| unfiltered_filter_true | 125 | 100 | 25 |
-| k30_cov0p5_chk1 | 109 | 87 | 22 |
-| k30_cov0p5_chk2 | 118 | 94 | 24 |
-| k30_cov0p5_chk3 | 121 | 96 | 25 |
+默认各自 synthetic validation 校准：
 
-当前机器 CUDA 不可用，SmartGen 原代码又直接调用 `.cuda()`，因此正式 Transformer Autoencoder 训练指标需要在 GPU 环境下补跑。论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径，正式性能结论以该路径的 GPU 训练结果为准。
+| Method | Synthetic Size | Threshold | Recall | Precision | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| unfiltered_filter_true | 125 | 1.7035 | 0.9773 | 0.7478 | 0.8473 |
+| k30_cov0p5_chk1 | 109 | 0.0004 | 1.0000 | 0.6331 | 0.7753 |
+| k30_cov0p5_chk2 | 118 | 0.0005 | 1.0000 | 0.6667 | 0.8000 |
+| k30_cov0p5_chk3 | 121 | 0.0003 | 1.0000 | 0.6331 | 0.7753 |
+
+这组结果显示：filtered variants 的 validation loss 太低，阈值接近 0，导致测试时误报偏多。
+
+使用未过滤 `filter_true` 的 validation split 作为公共阈值校准集后：
+
+| Method | Synthetic Size | Threshold | Recall | Precision | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| unfiltered_filter_true | 125 | 1.7035 | 0.9773 | 0.7478 | 0.8473 |
+| k30_cov0p5_chk1 | 109 | 1.6970 | 0.9773 | 0.7679 | 0.8600 |
+| k30_cov0p5_chk2 | 118 | 0.0098 | 1.0000 | 0.6822 | 0.8111 |
+| k30_cov0p5_chk3 | 121 | 0.0055 | 1.0000 | 0.6822 | 0.8111 |
+
+当前最有价值的结论是：causal filter 本身有潜力改善 SmartGen 生成数据，最佳 `k30_cov0p5_chk1` 在公共 validation 校准后 F1 从未过滤的 0.8473 提升到 0.8600；但 hard deletion 需要配套阈值校准，否则会因为 validation 分布过窄而牺牲 Precision。
+
+论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径；在 FR winter -> spring 的 CPU adaptive 复现实验中，causal filtering + common validation calibration 比未过滤 SmartGen `filter_true` 取得更高 F1。
 
 ### SmartGuard wrapper 对照评估（辅助）
 
@@ -387,8 +417,8 @@ PYTHONPATH=. pytest -q
 ## 已知限制
 
 - `causal_prior.py` 是轻量 GCAD-style 实现，迁移了 GCAD 的梯度因果思想，但不是直接运行原 GCAD 实验脚本。
-- 当前证据主要证明工程链路跑通，还不能证明最终异常检测 F1 已经提升。
-- SmartGen 原异常检测脚本直接调用 `.cuda()`；真实训练需要 CUDA 环境，当前无 GPU 机器只能做 dry-run 链路验证。
+- 当前证据来自 FR winter -> spring，需要扩展到 SP/US 和 night/multiple 才能说明普遍性。
+- SmartGen 原异常检测脚本直接调用 `.cuda()`；CausalSmartHome wrapper 已改为 CPU/GPU 自适应，但 CPU 跑完整 sweep 会比 GPU 慢。
 - hard deletion 可能让训练/验证分布变窄，导致 anomaly threshold 过低并增加误报。
 - 后续应重点尝试阈值校准、软权重过滤、多数据集验证，以及被过滤样本的可解释分析。
 

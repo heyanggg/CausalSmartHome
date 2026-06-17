@@ -6,6 +6,8 @@ from typing import Any, Sequence
 import csv
 import importlib.util
 import json
+import math
+import numpy as np
 import pickle
 import random
 import sys
@@ -55,9 +57,11 @@ class SmartGenAnomalyRunConfig:
     epochs: int = 15
     seed: int = 2024
     split_ratio: float = 0.8
+    device: str = "auto"
     dry_run: bool = False
     attack_pkl: Path | None = None
     target_test_pkl: Path | None = None
+    validation_pkl: Path | None = None
 
 
 def default_smartgen_paths(smartgen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
@@ -124,32 +128,273 @@ def split_random_to_files(
     return train, vld
 
 
-def _import_smartgen_anomaly_module(smartgen_root: Path):
+def _import_smartgen_models(smartgen_root: Path):
     pipeline_root = smartgen_root / "anomaly_detection_pipeline"
-    module_path = pipeline_root / "Anomaly_Detection_pipeline_model.py"
+    module_path = pipeline_root / "models1.py"
     if not module_path.exists():
-        raise FileNotFoundError(f"SmartGen anomaly module not found: {module_path}")
+        raise FileNotFoundError(f"SmartGen models module not found: {module_path}")
     root_str = str(pipeline_root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
-    spec = importlib.util.spec_from_file_location("_csh_smartgen_anomaly", module_path)
+    spec = importlib.util.spec_from_file_location("_csh_smartgen_models", module_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"cannot import SmartGen anomaly module from {module_path}")
+        raise ImportError(f"cannot import SmartGen models from {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _ensure_cuda_available() -> None:
+def _resolve_torch_device(requested: str):
     try:
         import torch
     except ImportError as exc:
         raise RuntimeError("SmartGen anomaly evaluation requires torch for real training runs") from exc
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "SmartGen anomaly_detection_pipeline calls .cuda() directly; run this command in a CUDA-enabled "
-            "environment, or patch SmartGen for CPU/GPU adaptive training."
-        )
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("requested CUDA device, but torch.cuda.is_available() is false")
+    if requested not in {"cpu", "cuda"}:
+        raise ValueError("device must be auto, cpu, or cuda")
+    return torch.device(requested)
+
+
+def _setup_torch_seed(seed: int) -> None:
+    import os
+    import torch
+
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.backends.cudnn.enabled = False
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+
+def _pad_sequences(vocab_size: int, sequences: Sequence[Sequence[int]], length: int = 40) -> list[list[int]]:
+    padded: list[list[int]] = []
+    for seq in sequences:
+        row = list(seq)
+        if len(row) < length:
+            row = row + [vocab_size - 1] * (length - len(row))
+        elif len(row) > length:
+            row = row[:length]
+        padded.append(row)
+    return padded
+
+
+def _dataset_for_env(models_module, env: str):
+    if env == "spring":
+        return models_module.TimeSeriesDataset2
+    if env == "night":
+        return models_module.TimeSeriesDataset3
+    if env == "multiple":
+        return models_module.TimeSeriesDataset4
+    raise ValueError("env must be spring, night, or multiple")
+
+
+def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path, batch_size: int):
+    from torch.utils.data import DataLoader
+
+    data = np.array(_pad_sequences(vocab_size, load_pickle(data_file)))
+    dataset = _dataset_for_env(models_module, env)(vocab_size, data)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+
+def _sequence_loss(output, src, mask_v, vocab_size: int, seq_len: int, criterion):
+    import torch
+
+    loss = criterion(output.view(-1, vocab_size), src.view(-1))
+    loss = loss.reshape(-1, seq_len) * mask_v
+    denom = torch.sum(mask_v)
+    if denom.item() == 0:
+        return torch.sum(loss)
+    return torch.sum(loss) / denom
+
+
+def _train_adaptive(
+    models_module,
+    env: str,
+    vocab_size: int,
+    epochs: int,
+    train_file: str | Path,
+    model_path: str | Path,
+    seq_len: int,
+    device,
+) -> list[dict[str, float]]:
+    import torch
+    import torch.nn as nn
+    from torch import optim
+
+    model = models_module.TransformerAutoencoder(
+        vocab_size=vocab_size,
+        d_model=512,
+        nhead=8,
+        num_encoder_layers=2,
+        num_decoder_layers=2,
+    ).to(device)
+    criterion = nn.CrossEntropyLoss(reduction="none")
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    train_loader = _make_loader(models_module, env, vocab_size, train_file, batch_size=32)
+
+    history: list[dict[str, float]] = []
+    for epoch in range(epochs):
+        total_loss = 0.0
+        for batch in train_loader:
+            src, padding_mask, mask_v = batch
+            src = src.to(device).long()
+            mask_v = mask_v.to(device)
+            padding_mask = padding_mask.to(device)
+            output = model(src, src_key_padding_mask=padding_mask)
+            loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
+            total_loss += loss.item()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        torch.save(model.state_dict(), model_path)
+        avg_loss = total_loss / len(train_loader) if len(train_loader) else math.nan
+        history.append({"epoch": epoch + 1, "train_loss": avg_loss})
+        print(f"Epoch [{epoch + 1}/{epochs}] - Train Loss: {avg_loss:.4f}")
+    print("Finished Training")
+    return history
+
+
+def _load_transformer(models_module, vocab_size: int, model_path: str | Path, device):
+    import torch
+
+    model = models_module.TransformerAutoencoder(
+        vocab_size=vocab_size,
+        d_model=512,
+        nhead=8,
+        num_encoder_layers=2,
+        num_decoder_layers=2,
+    ).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    return model
+
+
+def _losses_for_file(
+    models_module,
+    env: str,
+    vocab_size: int,
+    data_file: str | Path,
+    model_path: str | Path,
+    seq_len: int,
+    device,
+) -> list[float]:
+    import torch
+    import torch.nn as nn
+
+    loader = _make_loader(models_module, env, vocab_size, data_file, batch_size=1)
+    model = _load_transformer(models_module, vocab_size, model_path, device)
+    criterion = nn.CrossEntropyLoss(reduction="none")
+    losses: list[float] = []
+    with torch.no_grad():
+        for batch in loader:
+            src, padding_mask, mask_v = batch
+            src = src.to(device).long()
+            mask_v = mask_v.to(device)
+            padding_mask = padding_mask.to(device)
+            output = model(src, src_key_padding_mask=padding_mask)
+            loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
+            losses.append(loss.item())
+    return losses
+
+
+def _find_threshold_adaptive(
+    models_module,
+    env: str,
+    vocab_size: int,
+    vld_file: str | Path,
+    model_path: str | Path,
+    seq_len: int,
+    percentage: float,
+    device,
+):
+    losses = _losses_for_file(models_module, env, vocab_size, vld_file, model_path, seq_len, device)
+    avg_loss = float(np.mean(losses)) if losses else math.nan
+    print(f"Avg Loss (Validation Dataset): {avg_loss:.4f}")
+    threshold = float(np.percentile(losses, percentage)) if losses else math.nan
+    print(f"Percentage:{percentage}% Threshold: {threshold}")
+    return threshold, losses
+
+
+def _evaluate_adaptive(
+    models_module,
+    env: str,
+    vocab_size: int,
+    attack_file: str | Path,
+    target_test_file: str | Path,
+    model_path: str | Path,
+    seq_len: int,
+    threshold: float,
+    device,
+) -> dict[str, Any]:
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader
+
+    attack_samples = load_pickle(attack_file)
+    normal_samples = [(row, 0) for row in _pad_sequences(vocab_size, load_pickle(target_test_file))]
+    samples = normal_samples + attack_samples
+    data = np.array(_pad_sequences(vocab_size, [item[0] for item in samples]))
+    labels = [int(item[1]) for item in samples]
+    dataset = _dataset_for_env(models_module, env)(vocab_size, data)
+    loader = DataLoader(dataset, batch_size=1, shuffle=False)
+    model = _load_transformer(models_module, vocab_size, model_path, device)
+    criterion = nn.CrossEntropyLoss(reduction="none")
+
+    losses: list[float] = []
+    with torch.no_grad():
+        for batch in loader:
+            src, padding_mask, mask_v = batch
+            src = src.to(device).long()
+            mask_v = mask_v.to(device)
+            padding_mask = padding_mask.to(device)
+            output = model(src, src_key_padding_mask=padding_mask)
+            loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
+            losses.append(loss.item())
+
+    predictions = [0 if loss < threshold else 1 for loss in losses]
+    tp = sum(1 for y, p in zip(labels, predictions) if y == 1 and p == 1)
+    tn = sum(1 for y, p in zip(labels, predictions) if y == 0 and p == 0)
+    fp = sum(1 for y, p in zip(labels, predictions) if y == 0 and p == 1)
+    fn = sum(1 for y, p in zip(labels, predictions) if y == 1 and p == 0)
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    accuracy = (tp + tn) / len(labels) if labels else 0.0
+    f1_score = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+
+    print(f"Avg Loss (Test Dataset): {float(np.mean(losses)) if losses else math.nan:.4f}")
+    print("Recall:", recall)
+    print("Precision:", precision)
+    print("Accuracy:", accuracy)
+    print("F1 Score:", f1_score)
+    if losses:
+        print(f"Max loss {max(losses):.4f} , Min loss: {min(losses):.4f}")
+    print("Finished Test")
+
+    return {
+        "recall": recall,
+        "precision": precision,
+        "accuracy": accuracy,
+        "F1 score": f1_score,
+        "TP": tp,
+        "TN": tn,
+        "FP": fp,
+        "FN": fn,
+        "test_size": len(labels),
+        "normal_test_size": len(normal_samples),
+        "attack_test_size": len(attack_samples),
+        "test_loss_avg": float(np.mean(losses)) if losses else math.nan,
+        "test_loss_min": min(losses) if losses else math.nan,
+        "test_loss_max": max(losses) if losses else math.nan,
+    }
 
 
 def _jsonable(obj: Any) -> Any:
@@ -198,6 +443,9 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
     synthetic_data = load_pickle(config.synthetic_pkl)
     train_size, vld_size = _prepare_split(config, train_pkl, vld_pkl)
 
+    threshold_vld_pkl = (config.validation_pkl or vld_pkl).resolve()
+    threshold_vld_size = len(load_pickle(threshold_vld_pkl)) if threshold_vld_pkl.exists() else None
+
     payload: dict[str, Any] = {
         "tag": config.tag,
         "dataset": config.dataset,
@@ -208,13 +456,16 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         "threshold_percentage": threshold_percentage,
         "epochs": config.epochs,
         "split_ratio": config.split_ratio,
+        "requested_device": config.device,
         "dry_run": config.dry_run,
         "synthetic_pkl": str(config.synthetic_pkl.resolve()),
         "synthetic_size": len(synthetic_data),
         "train_pkl": str(train_pkl),
         "vld_pkl": str(vld_pkl),
+        "threshold_vld_pkl": str(threshold_vld_pkl),
         "train_size": train_size,
         "vld_size": vld_size,
+        "threshold_vld_size": threshold_vld_size,
         "model_path": str(model_path),
         "result_path": str(result_path),
         "attack_pkl": str((config.attack_pkl or defaults["attack_pkl"]).resolve()),
@@ -224,21 +475,33 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
 
-    _ensure_cuda_available()
-    module = _import_smartgen_anomaly_module(smartgen_root)
-    vocab_size = getattr(module, "vocab_dic", VOCAB_DIC)[config.dataset]
+    device = _resolve_torch_device(config.device)
+    models_module = _import_smartgen_models(smartgen_root)
+    vocab_size = VOCAB_DIC[config.dataset]
     seq_len = 10
-    module.setup_seed(config.seed)
-    module.train(config.env, vocab_size, config.epochs, str(train_pkl), str(model_path), seq_len)
-    learned_threshold = module.find_threshold(
+    _setup_torch_seed(config.seed)
+    train_history = _train_adaptive(
+        models_module,
         config.env,
         vocab_size,
-        str(vld_pkl),
+        config.epochs,
+        str(train_pkl),
         str(model_path),
         seq_len,
-        percentage=threshold_percentage,
+        device,
     )
-    recall, precision, accuracy, f1_score = module.evaluate(
+    learned_threshold, validation_losses = _find_threshold_adaptive(
+        models_module,
+        config.env,
+        vocab_size,
+        str(threshold_vld_pkl),
+        str(model_path),
+        seq_len,
+        threshold_percentage,
+        device,
+    )
+    metrics = _evaluate_adaptive(
+        models_module,
         config.env,
         vocab_size,
         str(config.attack_pkl or defaults["attack_pkl"]),
@@ -246,16 +509,19 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         str(model_path),
         seq_len,
         threshold=learned_threshold,
+        device=device,
     )
     payload.update(
         {
+            "device": str(device),
+            "train_history": train_history,
+            "validation_loss_avg": float(np.mean(validation_losses)) if validation_losses else math.nan,
+            "validation_loss_min": min(validation_losses) if validation_losses else math.nan,
+            "validation_loss_max": max(validation_losses) if validation_losses else math.nan,
             "learned_threshold": float(learned_threshold),
-            "recall": float(recall),
-            "precision": float(precision),
-            "accuracy": float(accuracy),
-            "F1 score": float(f1_score),
         }
     )
+    payload.update(metrics)
     result_path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
@@ -267,11 +533,14 @@ SMARTGEN_SWEEP_FIELDS = [
     "synthetic_size",
     "train_size",
     "vld_size",
+    "threshold_vld_pkl",
+    "threshold_vld_size",
     "recall",
     "precision",
     "accuracy",
     "F1 score",
     "learned_threshold",
+    "device",
     "result_path",
     "model_path",
 ]
@@ -285,11 +554,14 @@ def summarize_smartgen_payload(payload: dict[str, Any], slug: str) -> dict[str, 
         "synthetic_size": payload.get("synthetic_size", ""),
         "train_size": payload.get("train_size", ""),
         "vld_size": payload.get("vld_size", ""),
+        "threshold_vld_pkl": payload.get("threshold_vld_pkl", ""),
+        "threshold_vld_size": payload.get("threshold_vld_size", ""),
         "recall": payload.get("recall", ""),
         "precision": payload.get("precision", ""),
         "accuracy": payload.get("accuracy", ""),
         "F1 score": payload.get("F1 score", ""),
         "learned_threshold": payload.get("learned_threshold", ""),
+        "device": payload.get("device", ""),
         "result_path": payload.get("result_path", ""),
         "model_path": payload.get("model_path", ""),
     }
@@ -333,9 +605,11 @@ def run_smartgen_anomaly_sweep(
             epochs=base_config.epochs,
             seed=base_config.seed,
             split_ratio=base_config.split_ratio,
+            device=base_config.device,
             dry_run=base_config.dry_run,
             attack_pkl=base_config.attack_pkl,
             target_test_pkl=base_config.target_test_pkl,
+            validation_pkl=base_config.validation_pkl,
         )
         payload = run_smartgen_anomaly_experiment(config)
         summary_rows.append(summarize_smartgen_payload(payload, slug=slug))
