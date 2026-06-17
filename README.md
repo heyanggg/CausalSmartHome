@@ -382,6 +382,45 @@ base / unfiltered filter_true / causal-filtered filter_true
 
 论文或报告中目前最稳妥的表述是：CausalSmartHome 已经把 GCAD-style causal filter 接回 SmartGen 原异常检测实验路径；在 FR winter -> spring 的 GPU 复现实验中，causal filtering + common validation calibration 比未过滤 SmartGen `filter_true` 取得更高 F1。
 
+### SP winter -> spring SmartGen 扩展
+
+按同一 SmartGen 原生异常检测口径补跑了 SP winter -> spring。SP 的 `sparse-threshold=5e-05` device prior 被 sparsify 后没有非零边，filter sweep 退化为全保留；因此 SP 主实验使用 `sparse-threshold=0` 的 device prior。
+
+```text
+dataset: sp
+source context: winter
+target context: spring
+causal level: device
+lag: 4
+epochs: 40
+sparse threshold: 0
+```
+
+主输出目录：
+
+```text
+outputs/sp_winter_to_spring_device_h0/
+```
+
+三档 causal filter 的过滤规模：
+
+| Filter | Raw | Kept | Rejected | Reject Ratio |
+| --- | ---: | ---: | ---: | ---: |
+| k30_cov0p5_chk1 | 140 | 74 | 66 | 47.14% |
+| k30_cov0p5_chk2 | 140 | 111 | 29 | 20.71% |
+| k30_cov0p5_chk3 | 140 | 122 | 18 | 12.86% |
+
+使用未过滤 `filter_true` 的 validation split 作为公共阈值校准集后，SP 结果为：
+
+| Method | Synthetic Size | Threshold | Recall | Precision | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| unfiltered_filter_true | 140 | 0.0053 | 1.0000 | 0.8585 | 0.9239 |
+| k30_cov0p5_chk1 | 74 | 6.5453 | 0.0989 | 0.3478 | 0.1540 |
+| k30_cov0p5_chk2 | 111 | 5.7905 | 0.7486 | 0.7730 | 0.7606 |
+| k30_cov0p5_chk3 | 122 | 8.4056 | 0.7885 | 0.7788 | 0.7836 |
+
+SP 结论与 FR 不同：未过滤 SmartGen baseline 已经较强，三档 hard-deletion causal filter 均未超过 baseline。详细记录见 `docs/task7_sp_smartgen_anomaly.md`。
+
 ### SmartGuard wrapper 对照评估（辅助）
 
 随后使用 `smartguard-sweep-eval` 在同一 SmartGuard wrapper 口径下补跑了 `base_only`、未过滤 `filter_true` 和三档 causal filter 对照。
@@ -432,7 +471,7 @@ PYTHONPATH=. pytest -q
 ## 已知限制
 
 - `causal_prior.py` 是轻量 GCAD-style 实现，迁移了 GCAD 的梯度因果思想，但不是直接运行原 GCAD 实验脚本。
-- 当前证据来自 FR winter -> spring，需要扩展到 SP/US 和 night/multiple 才能说明普遍性。
+- 当前证据显示 FR winter -> spring 是正例，SP winter -> spring 是 hard deletion 未提升的诊断负例；仍需扩展到 US 和 night/multiple 才能说明普遍性。
 - SmartGen 原异常检测脚本直接调用 `.cuda()`；CausalSmartHome wrapper 已改为 CPU/GPU 自适应，但 CPU 跑完整 sweep 会比 GPU 慢。
 - hard deletion 可能让训练/验证分布变窄，导致 anomaly threshold 过低并增加误报。
 - 后续应重点尝试阈值校准、软权重过滤、多数据集验证，以及被过滤样本的可解释分析。
