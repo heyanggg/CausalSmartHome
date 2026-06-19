@@ -2,7 +2,7 @@
 
 `CausalSmartHome` 是一个面向智能家居行为漂移实验的非侵入式因果胶水层项目。它把 SmartGen 风格的合成行为数据、GCAD-style 的 Granger 因果先验，以及 SmartGen/SmartGuard 下游异常检测流程连接起来，但不修改原始项目主体代码。
 
-当前主线定位已经收敛为：把 GCAD-style causal prior 加到 SmartGen 的生成数据质量控制里，再沿用 SmartGen 自己的 Transformer Autoencoder 异常检测流程评估。SmartGuard wrapper 保留为辅助对照，用来观察同一批合成数据迁移到另一个异常检测框架时会发生什么。
+当前主线定位已经收敛为：把 GCAD-style causal prior 前移到 SmartGen 的 GSS / prompt 阶段，让 device-level 因果先验参与“怎么生成”，再沿用 SmartGen 自己的 TOF 和 Transformer Autoencoder 异常检测流程评估。生成后 causal filter / soft weighting 仍保留为历史对照；SmartGuard wrapper 只作为辅助对照，不是当前主线。
 
 本项目关注的问题是：
 
@@ -31,12 +31,13 @@ SmartGen/SmartGuard 的行为序列通常是扁平化数值格式：
 [day, hour_slot, device_id, action_id, day, hour_slot, device_id, action_id, ...]
 ```
 
-本项目先把离散行为事件转成多变量事件张量，再训练一个轻量 GCAD-style 梯度因果挖掘器，得到 action/device/device-action 级因果先验。该先验目前主要用于两个位置：
+本项目先把离散行为事件转成多变量事件张量，再训练一个轻量 GCAD-style 梯度因果挖掘器，得到 action/device/device-action 级因果先验。该先验目前主要用于三个位置：
 
-1. `causal_prompt.py`：生成 SmartGen prompt 中的 causal hints。
-2. `causal_filter.py`：对 SmartGen 生成序列做因果一致性评分和过滤。
+1. `causal_gss.py` + `causal_prompt_adapter.py`：构建 GCAD-GSS prompt enhancement wrapper，将 soft causal hints 插入 SmartGen 原 GSS hints 后。
+2. `causal_prompt.py`：生成旧版 SmartGen causal hints。
+3. `causal_filter.py`：对 SmartGen 生成序列做因果一致性评分、过滤或诊断。
 
-当前实验主要验证的是生成后过滤路径。
+当前实验主要验证的是 GCAD-GSS prompt enhancement 路径；生成后过滤路径作为 Stage 2 历史结果保留。
 
 ```text
 SmartGen / SmartGuard numeric sequences
@@ -50,15 +51,16 @@ Event Tensor Bridge
         v
 GCAD-style gradient causal prior
         |
-        +--------------------------+
-        |                          |
-        v                          v
-causal prompt hints          causal consistency filter
-        |                          |
-        v                          v
-SmartGen generation      filtered synthetic sequences
-        |                          |
-        +-------------> downstream anomaly detection
+        +-----------------------------+
+        |                             |
+        v                             v
+GCAD-GSS prompt hints          causal consistency filter
+        |                             |
+        v                             v
+SmartGen generation + TOF      filtered/weighted sequences
+        |
+        v
+SmartGen Transformer Autoencoder AD check
 ```
 
 ## 目录结构
@@ -70,6 +72,8 @@ CausalSmartHome/
     event_tensor.py       # 离散行为序列 -> [T, C] 事件张量
     causal_prior.py       # 轻量 GCAD-style 梯度因果挖掘器
     gcad_adapter.py       # 本地因果挖掘包装入口
+    causal_gss.py         # device-level GCAD-GSS prior 和 soft causal hints
+    causal_prompt_adapter.py # 将 causal hints 插入 SmartGen 原 prompt
     causal_prompt.py      # SmartGen causal hints 构造
     causal_filter.py      # 因果一致性评分和过滤
     smartgen_adapter.py   # SmartGen pkl 数据约定和转移提示
@@ -87,6 +91,10 @@ CausalSmartHome/
     GCAD       -> /home/heyang/projects/GCAD
   external_sources_snapshot_from_tar/
   outputs/
+  scripts/
+    build_gcad_gss_prompt.py       # 只生成 enhanced prompt，不调用 LLM
+    run_stage3a_gcad_gss_fr_st.py  # FR-ST original vs enhanced prompt 生成质量评估
+    run_stage3b_ad_gcad_gss_fr_st.py # FR-ST downstream AD sanity check
   tests/
   pyproject.toml
   requirements.txt
@@ -213,6 +221,62 @@ PYTHONPATH=. python -m causal_smart_home.cli prompt \
   --new-context spring \
   --out-prompt outputs/fr_winter_to_spring_device_h5e-05/causal_prompt.txt
 ```
+
+构造 GCAD-GSS enhanced SmartGen prompt，不调用 LLM、不重新生成数据：
+
+```bash
+PYTHONPATH=. python scripts/build_gcad_gss_prompt.py \
+  --source-train-pkl /home/heyang/projects/SmartGen/SmartGen/IoT_data/fr/winter/trn.pkl \
+  --smartgen-original-prompt outputs/gcad_gss/fr_st_prompt_check/sample_original_prompt.txt \
+  --device-dict /home/heyang/projects/SmartGen/SmartGen/dictionary.py \
+  --action-dict /home/heyang/projects/SmartGen/SmartGen/dictionary.py \
+  --out-prompt outputs/gcad_gss/fr_st_prompt_check/enhanced_prompt.txt \
+  --level device \
+  --top-k-edges 20 \
+  --lag 4 \
+  --epochs 80 \
+  --sparse-threshold 0.001
+```
+
+GCAD-GSS prompt wrapper 输出：
+
+```text
+enhanced_prompt.txt
+causal_hints.json
+top_causal_edges.md
+prompt_diff.md
+run_config.json
+```
+
+Stage 3A 只比较 SmartGen original prompt 与 GCAD-GSS enhanced prompt 的生成质量，不接 SmartGuard、不先跑下游 AD：
+
+```bash
+/home/heyang/miniconda3/envs/smartguard_env/bin/python scripts/run_stage3a_gcad_gss_fr_st.py \
+  --stage all \
+  --groups original,enhanced \
+  --offline-generator codex-calibrated \
+  --samples-per-category 6 \
+  --no-reuse-existing-original \
+  --output-tag fr_st_codex_calibrated_v3 \
+  --sparse-threshold 0.001 \
+  --epochs 80 \
+  --sample-limit 64 \
+  --seed 2024 \
+  --require-cuda
+```
+
+Stage 3B 是后续 downstream AD sanity check，仍只用 FR-ST 和 SmartGen Transformer Autoencoder wrapper：
+
+```bash
+/home/heyang/miniconda3/envs/smartguard_env/bin/python scripts/run_stage3b_ad_gcad_gss_fr_st.py \
+  --stage3a-tag fr_st_codex_calibrated_v3 \
+  --epochs 15 \
+  --seed 2024 \
+  --device cuda \
+  --cuda-visible-devices 0
+```
+
+`codex-calibrated` 是本地可复现的文本生成模式：它把现有 SmartGen FR-ST TOF baseline 当作 style bank，用于校准序列长度、设备/动作多样性和粗粒度 transition 分布，然后重新输出 SmartGen `<seq ... seq>` 文本并走 SmartGen 原 Extract / Transnum / security_check / TOF。它适合工程 sanity check；若要做最终论文式结论，还需要改为真实 LLM API 或原 SmartGen generation 入口并做多 seed 复现。
 
 过滤 SmartGen 原始生成序列：
 
@@ -349,6 +413,47 @@ smartguard_sweep_eval_summary.json
 如需先检查合并训练集和输出路径，可以加 `--dry-run`，不会真正训练模型。
 
 ## 当前实验快照
+
+### FR-ST GCAD-GSS prompt enhancement
+
+当前最新主线是 FR winter -> spring 的 GCAD-GSS prompt enhancement。实验只改变 prompt：
+
+```text
+original: SmartGen original prompt
+enhanced: SmartGen original prompt + GCAD-GSS device-level soft causal hints
+```
+
+两组都输出 SmartGen `<seq ... seq>` 文本，并经过 SmartGen 原 Extract / Transnum / security_check / TOF。Stage 3A 的最新可复现实验目录：
+
+```text
+outputs/gcad_gss/fr_st_codex_calibrated_v3/
+```
+
+Stage 3A generation-quality 结果：
+
+| Group | Raw | TOF kept | Causal coverage | Violation | Low evidence | Action JS | Device JS | Transition JS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| original | 222 | 207 | 0.5532 | 0.0217 | 0.4251 | 0.4784 | 0.2457 | 0.7891 |
+| enhanced | 222 | 209 | 0.5221 | 0.0760 | 0.4019 | 0.4234 | 0.2132 | 0.8027 |
+
+enhanced prompt 在 low evidence、action JS、device JS 和 TOF kept rate 上更好；causal coverage 降低、violation rate 上升、transition JS 略差。因此 Stage 3A 结论应写成“生成质量若干关键指标改善，但并非所有指标单调提升”。
+
+Stage 3B downstream AD sanity check 目录：
+
+```text
+outputs/gcad_gss/fr_st_stage3b_ad/fr_st_codex_calibrated_v3/
+```
+
+| Group | Precision | Recall | F1 | FPR | Accuracy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| original prompt | 0.6241 | 1.0000 | 0.7686 | 0.6023 | 0.6989 |
+| enhanced prompt | 0.7521 | 1.0000 | 0.8585 | 0.3295 | 0.8352 |
+
+在当前 controlled wrapper 设置下，GCAD-GSS enhanced prompt 相比 original prompt 有明显提升：F1 +0.090，FPR -0.273，accuracy +0.136，且 recall 没有下降。但 `codex-calibrated` 使用现有 SmartGen GPT baseline 作为 style bank，因此这是一组工程验证和 sanity check，不能直接表述为完全独立 LLM 生成的最终论文结论。下一步应做多 seed 重复和真实 LLM/API 复现。
+
+详细记录见 `docs/task12_gcad_gss_prompt_stage3.md`。
+
+### Stage 2 causal filter / weighting history
 
 主实验设置：
 
@@ -510,10 +615,10 @@ PYTHONPATH=. pytest -q
 
 ```text
 PYTHONPATH=. pytest -q
-8 passed, 3 skipped
+18 passed, 1 warning
 
 /home/heyang/miniconda3/envs/smartguard_env/bin/python -m pytest -q
-11 passed, 1 warning
+18 passed, 1 warning
 ```
 
 如果某个环境没有安装 `torch`，依赖因果训练的测试会自动跳过，非 torch 测试仍可运行。
