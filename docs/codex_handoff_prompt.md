@@ -20,6 +20,8 @@
 - 目标是把 device-level GCAD prior 从 TOF 后处理前移到 SmartGen GSS / prompt 阶段，让因果先验参与“怎么生成”，而不是生成后复制、删样本或加权样本。
 - 当前只做 FR winter -> spring，即 FR-ST。
 - 暂时不要接 SmartGuard 作为主实验。
+- 由于 API 环境限制，后续固定使用 `codex-calibrated` GPT-style generator 作为序列生成后端。
+- SmartGen 的 Extract / Transnum / security_check / TOF 和下游 Transformer Autoencoder 评估流程必须保持不变。
 
 已新增关键代码：
 
@@ -93,15 +95,18 @@ Stage 3B 结果：
 
 重要 caveat：
 
-- `codex-calibrated` 是本地可复现文本生成模式。
+- `codex-calibrated` 是当前固定使用的本地可复现 GPT-style 文本生成模式。
 - 它使用现有 SmartGen FR-ST TOF baseline 作为 style bank，用于校准长度、设备/动作多样性和 transition 风格。
 - 它仍然输出 SmartGen `<seq ... seq>` 文本，再经过 SmartGen 原 Extract / Transnum / security_check / TOF。
-- 这支持工程 sanity check，但不能被包装成完全独立 LLM/API 生成的最终论文结论。
+- 报告时说清楚这是 Codex-calibrated generation setting，不能写成外部 LLM/API 复现。
+- SmartGen 论文已经给出 original SmartGen 的 FR/SP/US anomaly detection 结果表；通常不需要重新跑论文 original baseline。
+- 若只是继续做 GCAD-GSS enhanced prompt ablation，且生成后端、seed、TOF、target test、AD 设置都不变，可以复用已有 original prompt arm。
+- 只有改变 generator 协议、seed 组、数据 split 或评估设置时，才同步补跑 original prompt arm。
 
 推荐谨慎表述：
 
 ```text
-On FR-ST, under a controlled SmartGen wrapper where the prompt is the only intended intervention, the GCAD-GSS enhanced prompt improves several generation-quality indicators and yields a stronger downstream SmartGen Transformer Autoencoder AD sanity-check result than the original prompt.
+On FR-ST, under a controlled Codex-calibrated GPT-style generation backend with unchanged SmartGen TOF and Transformer Autoencoder evaluation, the GCAD-GSS enhanced prompt improves several generation-quality indicators and yields a stronger downstream AD sanity-check result than the original prompt.
 ```
 
 工作习惯要求：
@@ -115,7 +120,8 @@ On FR-ST, under a controlled SmartGen wrapper where the prompt is the only inten
 
 下一步任务：
 
-1. 做 FR-ST `codex-calibrated` 多 seed 重复实验，至少 seeds `2024, 2025, 2026`，固定其他设置。
-2. 汇总 Stage 3A 多 seed 均值/方差，并补跑对应 Stage 3B AD sanity check。
-3. 判断 enhanced prompt 的提升是否稳定，重点看 F1、FPR、low evidence、action/device JS。
-4. 如果多 seed 稳定，再准备真实 LLM/API Stage 3A 版本；仍保持唯一变量为 prompt。
+1. 做 FR-ST `codex-calibrated` 多 seed 重复实验，至少 seeds `2024, 2025, 2026`，固定 TOF、target test 和 AD 设置。
+2. 不要重复跑 SmartGen 论文 original baseline；若同一 seed/protocol 已有 original prompt arm，直接复用。
+3. 汇总 Stage 3A 多 seed 均值/方差，并补跑或复用对应 Stage 3B AD sanity check。
+4. 判断 enhanced prompt 的提升是否稳定，重点看 F1、FPR、low evidence、action/device JS。
+5. 多 seed 稳定后，再扩展到 SP-ST / US-ST；继续保持 Codex-calibrated 生成后端和 SmartGen TOF/AD 流程不变。

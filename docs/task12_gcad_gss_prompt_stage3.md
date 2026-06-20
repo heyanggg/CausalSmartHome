@@ -11,6 +11,7 @@ Constraints:
 - Run FR winter -> spring only.
 - Keep SmartGen source data, target context, TOF path, and downstream AD wrapper fixed.
 - The controlled variable is the prompt: original SmartGen prompt vs GCAD-GSS enhanced prompt.
+- Because the API environment is limited, use `codex-calibrated` as the fixed GPT-style sequence generation backend for future experiments.
 
 ## Prompt Wrapper
 
@@ -65,9 +66,9 @@ outputs/gcad_gss/fr_st_codex_calibrated_v3/fr_st_stage3a_summary.csv
 outputs/gcad_gss/fr_st_codex_calibrated_v3/fr_st_stage3a_summary.md
 ```
 
-`codex-calibrated` is a reproducible local text generator. It uses the existing SmartGen FR-ST TOF baseline as a style bank for sequence length, device/action diversity, and coarse transition variety. It then emits SmartGen-format textual responses and still goes through SmartGen Extract, Transnum, security_check, and TOF.
+`codex-calibrated` is the fixed reproducible GPT-style text generator for this project under the current API constraints. It uses the existing SmartGen FR-ST TOF baseline as a style bank for sequence length, device/action diversity, and coarse transition variety. It then emits SmartGen-format textual responses and still goes through SmartGen Extract, Transnum, security_check, and TOF.
 
-This mode is useful for engineering sanity checks. It should not be described as a fully independent LLM/API generation result.
+This mode should be reported as Codex-calibrated generation. It should not be described as a fully independent external LLM/API generation result.
 
 ## Stage 3A Results
 
@@ -127,18 +128,19 @@ Under this controlled wrapper setting, GCAD-GSS enhanced prompt improves downstr
 Recommended wording:
 
 ```text
-On FR-ST, under a controlled SmartGen wrapper where the prompt is the only intended intervention, the GCAD-GSS enhanced prompt improves several generation-quality indicators and yields a stronger downstream SmartGen Transformer Autoencoder AD sanity-check result than the original prompt.
+On FR-ST, under a controlled Codex-calibrated GPT-style generation backend with unchanged SmartGen TOF and Transformer Autoencoder evaluation, the GCAD-GSS enhanced prompt improves several generation-quality indicators and yields a stronger downstream AD sanity-check result than the original prompt.
 ```
 
 Avoid claiming:
 
 - GCAD-GSS universally improves downstream AD.
 - The result is already validated across all SmartGen settings.
-- The `codex-calibrated` setting is equivalent to a fully independent LLM API run.
+- The `codex-calibrated` setting is equivalent to a fully independent external LLM/API run.
 
 ## Next Work
 
 1. Run multi-seed repeats for `fr_st_codex_calibrated_v3`.
-2. Run a true LLM/API Stage 3A with the same prompt pair and the same TOF/evaluation pipeline.
-3. Compare against SmartGen GPT baseline without using it as a style bank.
-4. Extend to SP-ST and US-ST only after FR-ST repeat stability is confirmed.
+2. Reuse the saved original prompt arm when the generator protocol, seed, TOF, target test, and AD settings are unchanged.
+3. Rerun the original prompt arm only when changing generator protocol, seed set, data split, or evaluation settings.
+4. Compare the Codex-calibrated GCAD-GSS results against the SmartGen paper table as the reported original SmartGen baseline, without rerunning the paper baseline unless a reviewer explicitly requires local reproduction.
+5. Extend to SP-ST and US-ST only after FR-ST repeat stability is confirmed.

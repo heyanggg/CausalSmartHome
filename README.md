@@ -248,7 +248,7 @@ prompt_diff.md
 run_config.json
 ```
 
-Stage 3A 只比较 SmartGen original prompt 与 GCAD-GSS enhanced prompt 的生成质量，不接 SmartGuard、不先跑下游 AD：
+由于当前 API 环境受限，后续实验固定使用 `codex-calibrated` GPT-style generator 作为序列生成后端；SmartGen 的 Extract / Transnum / security_check / TOF 和下游 Transformer Autoencoder 评估流程保持不变。Stage 3A 只比较 SmartGen original prompt 与 GCAD-GSS enhanced prompt 的生成质量，不接 SmartGuard、不先跑下游 AD：
 
 ```bash
 /home/heyang/miniconda3/envs/smartguard_env/bin/python scripts/run_stage3a_gcad_gss_fr_st.py \
@@ -276,7 +276,9 @@ Stage 3B 是后续 downstream AD sanity check，仍只用 FR-ST 和 SmartGen Tra
   --cuda-visible-devices 0
 ```
 
-`codex-calibrated` 是本地可复现的文本生成模式：它把现有 SmartGen FR-ST TOF baseline 当作 style bank，用于校准序列长度、设备/动作多样性和粗粒度 transition 分布，然后重新输出 SmartGen `<seq ... seq>` 文本并走 SmartGen 原 Extract / Transnum / security_check / TOF。它适合工程 sanity check；若要做最终论文式结论，还需要改为真实 LLM API 或原 SmartGen generation 入口并做多 seed 复现。
+`codex-calibrated` 是本地可复现的 GPT-style 文本生成模式：它把现有 SmartGen FR-ST TOF baseline 当作 style bank，用于校准序列长度、设备/动作多样性和粗粒度 transition 分布，然后重新输出 SmartGen `<seq ... seq>` 文本并走 SmartGen 原 Extract / Transnum / security_check / TOF。后续在本项目中把它作为默认生成后端；报告时需明确这是 Codex-calibrated 生成设置，不声称是外部 LLM API 复现。
+
+SmartGen 论文已经给出了 original SmartGen 在 FR/SP/US 的异常检测基线表；复现实验中通常不需要重新跑一遍论文 original baseline。若只是继续做 GCAD-GSS enhanced prompt ablation，且生成后端、seed、TOF、target test、AD 设置都不变，可以复用已经保存的 original prompt arm；只有在改变 generator 协议、seed 组、数据 split 或评估设置时，才需要同步补跑 original arm 以保证 prompt-only 对照公平。
 
 过滤 SmartGen 原始生成序列：
 
@@ -449,7 +451,7 @@ outputs/gcad_gss/fr_st_stage3b_ad/fr_st_codex_calibrated_v3/
 | original prompt | 0.6241 | 1.0000 | 0.7686 | 0.6023 | 0.6989 |
 | enhanced prompt | 0.7521 | 1.0000 | 0.8585 | 0.3295 | 0.8352 |
 
-在当前 controlled wrapper 设置下，GCAD-GSS enhanced prompt 相比 original prompt 有明显提升：F1 +0.090，FPR -0.273，accuracy +0.136，且 recall 没有下降。但 `codex-calibrated` 使用现有 SmartGen GPT baseline 作为 style bank，因此这是一组工程验证和 sanity check，不能直接表述为完全独立 LLM 生成的最终论文结论。下一步应做多 seed 重复和真实 LLM/API 复现。
+在当前 controlled wrapper 设置下，GCAD-GSS enhanced prompt 相比 original prompt 有明显提升：F1 +0.090，FPR -0.273，accuracy +0.136，且 recall 没有下降。由于后续固定使用 `codex-calibrated` 作为生成后端，结论应限定为 Codex-calibrated GPT-style generation + SmartGen TOF/AD setting。下一步优先做多 seed 重复，不再把外部 LLM API 复现作为当前必需步骤。
 
 详细记录见 `docs/task12_gcad_gss_prompt_stage3.md`。
 
