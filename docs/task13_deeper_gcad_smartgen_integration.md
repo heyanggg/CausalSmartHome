@@ -647,3 +647,42 @@ These are executable-integration evidence only; robust AD improvement still requ
 and baseline-controlled repeats.
 
 Detailed results are in `docs/task15_stage4_downweight_codex_mainline.md`.
+
+## 10. 2026-06-22 SmartGen Built-in Downstream AD Correction
+
+The formal Stage4 downstream AD result now uses SmartGen built-in `anomaly_detection_pipeline`
+semantics through `scripts/run_stage4c_gen_builtin_downstream_ad.py`. SmartGuard AD is optional
+extension only and the prior `epochs=1` SmartGuard runs remain smoke tests.
+
+Stage4C ran the common matrix:
+
+```text
+datasets: FR-ST, SP-ST
+seeds: 2024, 2025, 2026
+variants:
+  stage3_prompt_only_baseline
+  stage4_downweight_multiplicative_raw
+  stage4_downweight_multiplicative_causal_tof_resampled
+```
+
+All 18 SmartGen built-in AD runs succeeded. Summary outputs:
+
+```text
+outputs/gcad_gss_stage4/smartgen_downstream_ad_entry_report.md
+outputs/gcad_gss_stage4/stage3_downstream_ad_protocol_report.md
+outputs/gcad_gss_stage4/gen_builtin_ad_summary.md
+docs/task16_stage4_gen_builtin_downstream_ad.md
+```
+
+Mean F1:
+
+| Scenario | Stage3 baseline | Stage4 raw | Stage4 TOF |
+| --- | ---: | ---: | ---: |
+| FR-ST | 0.8175 | 0.2439 | 0.4442 |
+| SP-ST | 0.5461 | 0.8884 | 0.8347 |
+
+Conclusion: SP-ST gives preliminary evidence for Stage4 downweight improvement under the
+SmartGen built-in AD protocol, especially for raw Stage4. FR-ST is negative versus Stage3 baseline.
+Therefore the overall Stage4 downstream AD claim is partial/preliminary, not robust across both
+scenarios. Suppress mode remains a negative/control path; downweight + multiplicative remains the
+Stage4 main method.

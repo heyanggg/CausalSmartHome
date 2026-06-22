@@ -163,9 +163,35 @@ SmartGuard downstream AD smoke runs also completed for FR/SP raw and Causal-TOF 
 variants with `epochs=1`. Treat those as integration evidence only, not robust downstream
 AD improvement claims.
 
+## 2026-06-22 SmartGen built-in downstream AD correction
+
+The formal Stage 4 downstream AD mainline is SmartGen built-in
+`anomaly_detection_pipeline` semantics, not SmartGuard. The Stage4C wrapper is:
+
+```text
+scripts/run_stage4c_gen_builtin_downstream_ad.py
+```
+
+Formal outputs:
+
+```text
+outputs/gcad_gss_stage4/smartgen_downstream_ad_entry_report.md
+outputs/gcad_gss_stage4/stage3_downstream_ad_protocol_report.md
+outputs/gcad_gss_stage4/gen_builtin_ad_config.json
+outputs/gcad_gss_stage4/gen_builtin_ad_summary.md
+```
+
+All 18 formal SmartGen built-in AD runs completed for FR-ST/SP-ST, seeds
+2024/2025/2026, and variants Stage3 baseline, Stage4 raw, and Stage4 Causal-TOF
+resampled. SmartGuard remains an optional extension only.
+
+Summary: FR-ST is negative versus Stage3 baseline; SP-ST shows preliminary improvement.
+Therefore Stage4 cannot claim robust AD improvement across both scenarios.
+
 See `docs/task15_stage4_downweight_codex_mainline.md` and:
 
 ```text
 outputs/gcad_gss_stage4/stage4_downweight_codex_gpt55_summary.md
 outputs/gcad_gss_stage4/stage4_downstream_ad_summary.md
+docs/task16_stage4_gen_builtin_downstream_ad.md
 ```

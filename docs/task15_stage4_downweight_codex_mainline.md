@@ -94,7 +94,31 @@ outputs/gcad_gss_stage4/sp_st_stage4b_ad_codex_gpt55_downweight_raw_seed2024/dow
 outputs/gcad_gss_stage4/sp_st_stage4b_ad_codex_gpt55_downweight_tof_seed2024/downstream_ad_metrics.json
 ```
 
-Do not claim robust downstream AD improvement from these smoke metrics. They show that the SmartGuard integration path is executable for the Stage4 Codex/GPT-5.5 artifacts.
+Do not claim robust downstream AD improvement from these smoke metrics. They show only that the SmartGuard integration path is executable for the Stage4 Codex/GPT-5.5 artifacts.
+
+Important correction: the formal downstream AD mainline for this project is SmartGen built-in
+`anomaly_detection_pipeline` semantics, not SmartGuard. The follow-up Stage4C run used:
+
+```text
+scripts/run_stage4c_gen_builtin_downstream_ad.py
+outputs/gcad_gss_stage4/gen_builtin_ad_summary.md
+docs/task16_stage4_gen_builtin_downstream_ad.md
+```
+
+Stage4C completed all 18 SmartGen built-in AD runs for FR-ST/SP-ST, seeds 2024/2025/2026,
+and variants Stage3 baseline, Stage4 downweight raw, and Stage4 downweight + Causal-TOF
+resampled.
+
+Mean F1 results:
+
+| Scenario | Stage3 baseline | Stage4 raw | Stage4 TOF |
+| --- | ---: | ---: | ---: |
+| FR-ST | 0.8175 | 0.2439 | 0.4442 |
+| SP-ST | 0.5461 | 0.8884 | 0.8347 |
+
+Interpretation: FR-ST does not improve over Stage3 baseline; SP-ST shows preliminary
+improvement with lower mean FPR. Overall Stage4 cannot claim robust AD improvement across
+both scenarios.
 
 ## 5. Answers
 
@@ -106,8 +130,8 @@ Do not claim robust downstream AD improvement from these smoke metrics. They sho
 6. SP-ST Television bias is still overgenerated: no in the fresh surrogate; generated frequency is 0.
 7. Validation found illegal sequences: no in the final pkl.
 8. Causal-TOF hard-deleted samples: no. It produced weights and weighted-resampled pkl.
-9. Real downstream AD completed: yes as SmartGuard `epochs=1` smoke runs.
-10. Robust AD lift can be claimed: no. Full training and baseline-controlled repeats are still required.
+9. Real downstream AD completed: yes, in the corrected Stage4C SmartGen built-in AD run.
+10. Robust AD lift can be claimed: no. SP-ST shows preliminary improvement, but FR-ST is negative versus Stage3 baseline.
 
 ## 6. Summary Outputs
 
@@ -117,4 +141,3 @@ outputs/gcad_gss_stage4/stage4_downweight_codex_gpt55_summary.md
 outputs/gcad_gss_stage4/stage4_downstream_ad_summary.csv
 outputs/gcad_gss_stage4/stage4_downstream_ad_summary.md
 ```
-
