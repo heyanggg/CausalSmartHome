@@ -362,3 +362,33 @@ Summaries:
 python scripts/summarize_stage4_guarded_reweighted.py --root outputs/gcad_gss_stage4
 python scripts/summarize_stage4_causal_tof.py --root outputs/gcad_gss_stage4
 ```
+
+## 15. Downweight Codex/GPT-5.5 Mainline Follow-up
+
+After this suppress-mode server report, the Stage 4 mainline was updated to the downweight
+Codex/GPT-5.5 surrogate protocol:
+
+```text
+guard-mode=downweight
+downweight-factor=0.25
+reweight-mode=multiplicative
+lambda-causal=1.0
+endpoint-policy=target
+generator=codex_gpt55_surrogate
+api_llm=false
+surrogate_for_smartgen_llm=true
+```
+
+Fresh seed-2024 surrogate outputs were generated, validated, passed Stage4A quality checks,
+and received Causal-TOF soft weights:
+
+```text
+outputs/gcad_gss_stage4/fr_st_downweight_multiplicative_codex_gpt55_seed2024
+outputs/gcad_gss_stage4/sp_st_downweight_multiplicative_codex_gpt55_seed2024
+```
+
+SmartGuard Stage4B smoke runs completed with `epochs=1` for FR/SP raw and weighted variants.
+They prove the integration path executes but should not be reported as robust downstream AD
+improvement.
+
+See `docs/task15_stage4_downweight_codex_mainline.md`.

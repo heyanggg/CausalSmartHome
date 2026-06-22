@@ -38,6 +38,11 @@ def test_new_stage4_scripts_have_help():
         "run_stage4b_ad_guarded_reweighted_gss_sp_st.py",
         "summarize_stage4_guarded_reweighted.py",
         "summarize_stage4_causal_tof.py",
+        "build_codex_gpt55_generation_package.py",
+        "generate_codex_gpt55_surrogate_sequences.py",
+        "validate_generated_sequences.py",
+        "summarize_stage4_downweight_codex_gpt55.py",
+        "summarize_stage4_downstream_ad.py",
     ]
     root = Path(__file__).resolve().parents[1]
     for script in scripts:

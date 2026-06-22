@@ -135,3 +135,37 @@ docs/task14_stage4_server_run_report.md
 outputs/gcad_gss_stage4/stage4_guarded_reweighted_summary.md
 outputs/gcad_gss_stage4/stage4_causal_tof_summary.md
 ```
+
+## 2026-06-22 downweight Codex/GPT-5.5 mainline update
+
+The current Stage 4 mainline is now the downweight + multiplicative Codex/GPT-5.5
+surrogate path, not the earlier suppress-mode prompt-only validation:
+
+```text
+guard-mode=downweight
+downweight-factor=0.25
+reweight-mode=multiplicative
+lambda-causal=1.0
+endpoint-policy=target
+generator=codex_gpt55_surrogate
+api_llm=false
+surrogate_for_smartgen_llm=true
+```
+
+Fresh seed-2024 surrogate pkl files were generated and validated for FR-ST and SP-ST:
+
+```text
+outputs/gcad_gss_stage4/fr_st_downweight_multiplicative_codex_gpt55_seed2024
+outputs/gcad_gss_stage4/sp_st_downweight_multiplicative_codex_gpt55_seed2024
+```
+
+SmartGuard downstream AD smoke runs also completed for FR/SP raw and Causal-TOF weighted
+variants with `epochs=1`. Treat those as integration evidence only, not robust downstream
+AD improvement claims.
+
+See `docs/task15_stage4_downweight_codex_mainline.md` and:
+
+```text
+outputs/gcad_gss_stage4/stage4_downweight_codex_gpt55_summary.md
+outputs/gcad_gss_stage4/stage4_downstream_ad_summary.md
+```

@@ -618,3 +618,32 @@ outputs/gcad_gss_stage4/sp_st_stage4b_ad_causal_tof_weighted_seed*
 
 No F1/precision/recall/FPR improvement should be claimed for Stage 4 until real SmartGuard or
 SmartGen downstream AD metrics are produced from the Stage 4 generated or weighted/resampled pkl.
+
+## 9. 2026-06-22 downweight Codex/GPT-5.5 mainline update
+
+The follow-up mainline no longer uses suppress as the effective Stage 4 setting. It uses
+`guard-mode=downweight`, `downweight-factor=0.25`, `reweight-mode=multiplicative`,
+`lambda-causal=1.0`, and `endpoint-policy=target`.
+
+Fresh Codex/GPT-5.5 surrogate generation was run for seed 2024 with metadata:
+
+```text
+generator=codex_gpt55_surrogate
+api_llm=false
+surrogate_for_smartgen_llm=true
+```
+
+The main outputs are:
+
+```text
+outputs/gcad_gss_stage4/fr_st_downweight_multiplicative_codex_gpt55_seed2024
+outputs/gcad_gss_stage4/sp_st_downweight_multiplicative_codex_gpt55_seed2024
+outputs/gcad_gss_stage4/stage4_downweight_codex_gpt55_summary.md
+outputs/gcad_gss_stage4/stage4_downstream_ad_summary.md
+```
+
+SmartGuard Stage4B smoke runs completed with `epochs=1` for raw and Causal-TOF weighted pkl.
+These are executable-integration evidence only; robust AD improvement still requires full training
+and baseline-controlled repeats.
+
+Detailed results are in `docs/task15_stage4_downweight_codex_mainline.md`.

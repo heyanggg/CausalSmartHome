@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import pickle
 import random
+import importlib
+import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -186,6 +188,7 @@ def weighted_resample_sequences(
 
 
 def load_pickle_sequences(path: str | Path) -> list[BehaviorSequence]:
+    _install_numpy_pickle_compat()
     with open(path, "rb") as f:
         raw = pickle.load(f)
     return _coerce_many_sequences(raw)
@@ -258,6 +261,24 @@ def _canonical_device(value: Any) -> str:
     if text.isdigit():
         return f"d:{int(text)}"
     return text
+
+
+def _install_numpy_pickle_compat() -> None:
+    # Some SmartGen pickles were produced with newer NumPy module paths
+    # (numpy._core.*). Older experiment envs still expose numpy.core.*.
+    if "numpy._core" not in sys.modules:
+        try:
+            sys.modules["numpy._core"] = importlib.import_module("numpy.core")
+        except Exception:
+            pass
+    for submodule in ("multiarray", "numeric", "umath"):
+        old_name = f"numpy.core.{submodule}"
+        new_name = f"numpy._core.{submodule}"
+        if new_name not in sys.modules:
+            try:
+                sys.modules[new_name] = importlib.import_module(old_name)
+            except Exception:
+                pass
 
 
 def _coerce_one_sequence(sequence) -> BehaviorSequence:

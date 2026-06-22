@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
 import pickle
@@ -30,6 +31,7 @@ def add_stage4a_args(parser: argparse.ArgumentParser, scenario: str) -> None:
     parser.add_argument("--lambda-causal", type=float, default=1.0)
     parser.add_argument("--reweight-mode", choices=["additive", "multiplicative"], default="multiplicative")
     parser.add_argument("--guard-mode", choices=["suppress", "downweight"], default="suppress")
+    parser.add_argument("--downweight-factor", type=float, default=0.25)
     parser.add_argument("--endpoint-policy", choices=["target", "source_or_target", "both"], default="target")
     parser.add_argument("--max-overuse-ratio", type=float, default=1.25)
     parser.add_argument("--sparse-threshold", type=float, default=0.001)
@@ -65,6 +67,8 @@ def run_stage4a(args: argparse.Namespace, scenario: str) -> None:
         args.reweight_mode,
         "--guard-mode",
         args.guard_mode,
+        "--downweight-factor",
+        str(args.downweight_factor),
         "--endpoint-policy",
         args.endpoint_policy,
         "--max-overuse-ratio",
@@ -102,6 +106,7 @@ def run_stage4a(args: argparse.Namespace, scenario: str) -> None:
         hints_json=out_dir / "guarded_reweighted_gss_hints.json",
         guard_report_json=out_dir / "guard_report.json",
         generated_missing=not bool(args.generated_pkl),
+        television_device_key=television_key_from_device_dict(getattr(args, "device_dict", None), scenario),
     )
     metrics["scenario"] = scenario
     metrics["seed"] = args.seed
@@ -115,6 +120,7 @@ def compute_generation_quality(
     hints_json: Path,
     guard_report_json: Path,
     generated_missing: bool = False,
+    television_device_key: str | None = None,
 ) -> dict[str, Any]:
     generated = load_pickle_sequences(generated_pkl)
     target = load_pickle_sequences(target_pkl)
@@ -123,6 +129,8 @@ def compute_generation_quality(
     guarded_edges = extract_guarded_edges(hints_payload)
     target_distribution = compute_device_distribution(target)
     scores = score_sequences_causal_tof(generated, guarded_edges, target_distribution=target_distribution, mode="weight") if generated else []
+    nonzero_guarded_edges = len([edge for edge in guarded_edges if float(edge.get("guarded_causal_strength", edge.get("guarded_weight", edge.get("weight", 0.0)))) > 0])
+    television_stats = _television_stats(generated, target, guard_report, television_device_key=television_device_key)
     return {
         "generated_missing": generated_missing,
         "generated_size": len(generated),
@@ -134,12 +142,14 @@ def compute_generation_quality(
         "device_js_to_target": js_for_level(generated, target, "device") if generated else None,
         "transition_js_to_target": transition_js(generated, target) if generated else None,
         "tof_kept_rate": 1.0 if generated else 0.0,
-        "guarded_edge_count": len([edge for edge in guarded_edges if float(edge.get("guarded_causal_strength", edge.get("guarded_weight", edge.get("weight", 0.0)))) > 0]),
+        "guarded_edge_count": nonzero_guarded_edges,
+        "nonzero_guarded_edges": nonzero_guarded_edges,
         "suppressed_edge_count": guard_report.get("num_suppressed_edges", 0),
         "downweighted_edge_count": guard_report.get("num_downweighted_edges", 0),
         "avg_guarded_causal_strength": _mean([
             float(edge.get("guarded_causal_strength", edge.get("guarded_weight", edge.get("weight", 0.0)))) for edge in guarded_edges
         ]),
+        **television_stats,
     }
 
 
@@ -225,6 +235,69 @@ def _distribution_for_level(sequences: Sequence, level: str) -> dict[str, float]
             counts[event.key(level)] += 1
     total = sum(counts.values())
     return {key: value / total for key, value in counts.items()} if total else {}
+
+
+def _television_stats(generated: Sequence, target: Sequence, guard_report: dict[str, Any], television_device_key: str | None = None) -> dict[str, Any]:
+    tv_key = television_device_key or _find_television_key(guard_report)
+    if not tv_key:
+        return {
+            "television_device_key": None,
+            "television_freq_in_generated": None,
+            "television_freq_in_target": None,
+            "television_overuse_ratio": None,
+        }
+    generated_dist = _distribution_for_level(generated, "device") if generated else {}
+    target_dist = _distribution_for_level(target, "device") if target else {}
+    generated_freq = float(generated_dist.get(tv_key, 0.0))
+    target_freq = float(target_dist.get(tv_key, 0.0))
+    denom = max(target_freq, 1e-8)
+    return {
+        "television_device_key": tv_key,
+        "television_freq_in_generated": generated_freq,
+        "television_freq_in_target": target_freq,
+        "television_overuse_ratio": generated_freq / denom,
+    }
+
+
+def _find_television_key(guard_report: dict[str, Any]) -> str | None:
+    for collection_name in ("overused_devices", "edges"):
+        for row in guard_report.get(collection_name, []) or []:
+            for name_field, key_field in (("device_name", "device_key"), ("source_name", "source_device_key"), ("target_name", "target_device_key")):
+                if str(row.get(name_field, "")).lower() == "television" and row.get(key_field):
+                    return str(row[key_field])
+    return None
+
+
+def television_key_from_device_dict(device_dict: str | None, scenario: str) -> str | None:
+    if not device_dict:
+        return None
+    path = Path(device_dict)
+    if not path.exists():
+        return None
+    try:
+        if path.suffix == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            for key, value in payload.items():
+                if str(key).lower() == "television":
+                    return f"d:{int(value)}"
+                if str(value).lower() == "television":
+                    return f"d:{int(key)}"
+            return None
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        prefix = "fr" if scenario == "fr_st" else "sp"
+        wanted_name = f"{prefix}_devices_dict"
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            names = [target.id for target in node.targets if isinstance(target, ast.Name)]
+            if wanted_name not in names:
+                continue
+            value = ast.literal_eval(node.value)
+            if "Television" in value:
+                return f"d:{int(value['Television'])}"
+    except Exception:
+        return None
+    return None
 
 
 def _transition_distribution(sequences: Sequence) -> dict[str, float]:
