@@ -90,6 +90,7 @@ models/checkpoints/
 *.joblib
 
 # ---- Experiment outputs / logs ----
+artifacts/
 outputs/
 results/
 result/

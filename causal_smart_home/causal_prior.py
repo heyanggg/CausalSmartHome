@@ -124,6 +124,15 @@ class GradientCausalMiner:
         self.batch_size = batch_size
         self.seed = seed
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        # The tiny event-tensor miner is used in unit tests and small glue runs.
+        # On high-core CI/servers PyTorch's default CPU thread count can dominate
+        # the runtime for these small MLPs, so cap it modestly without affecting
+        # CUDA runs or the external GCAD project.
+        if self.device == "cpu":
+            try:
+                torch.set_num_threads(min(4, max(1, torch.get_num_threads())))
+            except Exception:
+                pass
         self.model: Optional[_TinyMixer] = None
         self.train_loss_: list[float] = []
 
