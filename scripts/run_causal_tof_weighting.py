@@ -24,7 +24,7 @@ from causal_smart_home.target_distribution_guard import compute_device_distribut
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Apply Stage 4 Causal-TOF soft weighting to generated sequences.")
-    parser.add_argument("--generated-pkl", required=True)
+    parser.add_argument("--generated-pkl", required=True, help="Input pkl. For the corrected mainline this should be SmartGen original TOF output, not the fresh raw generation.")
     parser.add_argument("--guarded-hints-json", required=True)
     parser.add_argument("--target-pkl", help="Target normal pkl for distribution penalty.")
     parser.add_argument("--target-distribution-json", help="Optional precomputed target device distribution JSON.")
@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-copies", type=int, default=3)
     parser.add_argument("--resample-size", type=int)
     parser.add_argument("--seed", type=int, default=2024)
+    parser.add_argument("--input-stage", default="smartgen_original_tof", choices=["raw_no_smartgen_tof", "smartgen_original_tof"], help="Provenance marker only; corrected mainline uses smartgen_original_tof.")
     return parser.parse_args()
 
 
@@ -95,6 +96,11 @@ def main() -> None:
         )
         resampling_config["mode"] = args.mode
         save_pickle_sequences(out_resampled, resampled)
+    resampling_config["input_stage"] = args.input_stage
+    resampling_config["used_smartgen_original_tof"] = args.input_stage == "smartgen_original_tof"
+    resampling_config["used_causal_tof"] = True
+    resampling_config["num_generated_after_smartgen_tof"] = len(sequences) if args.input_stage == "smartgen_original_tof" else None
+    resampling_config["num_generated_after_causal_tof"] = len(resampled) if args.mode != "filter" else len(kept)
     out_config.write_text(json.dumps(resampling_config, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"scored sequences: {len(scores)}")

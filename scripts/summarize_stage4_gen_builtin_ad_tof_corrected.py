@@ -1,0 +1,315 @@
+#!/usr/bin/env python
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import statistics
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Iterable
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+PER_SEED_FIELDS = [
+    "dataset",
+    "scenario",
+    "seed",
+    "variant",
+    "input_pkl",
+    "input_stage",
+    "used_smartgen_original_tof",
+    "used_causal_tof",
+    "downstream_pipeline",
+    "generator",
+    "api_llm",
+    "num_generated_before_tof",
+    "num_generated_after_smartgen_tof",
+    "num_generated_after_causal_tof",
+    "train_size",
+    "validation_size",
+    "test_size",
+    "threshold",
+    "threshold_source",
+    "precision",
+    "recall",
+    "f1",
+    "accuracy",
+    "fpr",
+    "fnr",
+    "status",
+    "run_dir",
+    "metrics_path",
+]
+
+METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
+
+DELTA_PAIRS = [
+    ("stage4_smartgen_original_tof", "stage3_prompt_only_smartgen_tof"),
+    ("stage4_smartgen_original_tof_plus_causal_tof", "stage3_prompt_only_smartgen_tof"),
+    ("stage4_smartgen_original_tof_plus_causal_tof", "stage4_smartgen_original_tof"),
+    ("stage4_raw_no_smartgen_tof", "stage4_smartgen_original_tof"),
+]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Summarize corrected Stage4 SmartGen built-in AD results with per-seed rows and seed-level deltas.")
+    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "gcad_gss_stage4")
+    parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs" / "gcad_gss_stage4" / "gen_builtin_ad_tof_corrected")
+    parser.add_argument("--metrics-glob", default="**/normalized_metrics.json")
+    return parser.parse_args()
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def collect_metric_files(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[Path]:
+    """Collect normalized per-run metrics.
+
+    The corrected Stage4 run directory itself is named
+    gen_builtin_ad_tof_corrected, so do not exclude that path component.
+    Summary outputs are CSV/MD/JSON aggregate files and do not match
+    normalized_metrics.json anyway.
+    """
+    return sorted(path for path in runs_root.glob(metrics_glob) if path.is_file())
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        f = float(value)
+    except Exception:
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _as_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except Exception:
+        try:
+            return int(float(value))
+        except Exception:
+            return None
+
+
+def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[str, Any]:
+    row = {field: payload.get(field, "") for field in PER_SEED_FIELDS}
+    row["seed"] = _as_int(row.get("seed"))
+    row["metrics_path"] = row.get("metrics_path") or str(metrics_path.resolve())
+    row["run_dir"] = row.get("run_dir") or str(metrics_path.parent.resolve())
+    if not row.get("input_pkl"):
+        row["input_pkl"] = payload.get("synthetic_pkl", "")
+    for key in [
+        "used_smartgen_original_tof",
+        "used_causal_tof",
+        "api_llm",
+    ]:
+        value = row.get(key)
+        if isinstance(value, str):
+            row[key] = value.lower() == "true" if value.lower() in {"true", "false"} else value
+    for key in METRIC_FIELDS + ["threshold"]:
+        row[key] = _as_float(row.get(key))
+    for key in [
+        "num_generated_before_tof",
+        "num_generated_after_smartgen_tof",
+        "num_generated_after_causal_tof",
+        "train_size",
+        "validation_size",
+        "test_size",
+    ]:
+        row[key] = _as_int(row.get(key))
+    return row
+
+
+def collect_per_seed_rows(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[dict[str, Any]]:
+    rows = []
+    for path in collect_metric_files(runs_root, metrics_glob):
+        payload = load_json(path)
+        rows.append(normalize_metric_row(payload, path))
+    rows.sort(key=lambda r: (str(r.get("dataset")), str(r.get("scenario")), int(r.get("seed") or -1), str(r.get("variant"))))
+    return rows
+
+
+def mean_std(values: list[float]) -> tuple[float | None, float | None]:
+    if not values:
+        return None, None
+    if len(values) == 1:
+        return values[0], 0.0
+    return statistics.mean(values), statistics.stdev(values)
+
+
+def build_aggregate_rows(per_seed_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in per_seed_rows:
+        groups[(str(row.get("dataset")), str(row.get("scenario")), str(row.get("variant")))].append(row)
+    aggregate = []
+    for (dataset, scenario, variant), rows in sorted(groups.items()):
+        item: dict[str, Any] = {
+            "table_type": "aggregate_mean_std_not_replacement_for_per_seed",
+            "dataset": dataset,
+            "scenario": scenario,
+            "variant": variant,
+            "num_seeds": len({row.get("seed") for row in rows}),
+            "seeds": ",".join(str(row.get("seed")) for row in rows),
+        }
+        for metric in METRIC_FIELDS:
+            vals = [float(row[metric]) for row in rows if row.get(metric) is not None]
+            mean, std = mean_std(vals)
+            item[f"{metric}_mean"] = mean
+            item[f"{metric}_std"] = std
+        aggregate.append(item)
+    return aggregate
+
+
+def index_rows(per_seed_rows: list[dict[str, Any]]) -> dict[tuple[str, str, int, str], dict[str, Any]]:
+    indexed = {}
+    for row in per_seed_rows:
+        seed = row.get("seed")
+        if seed is None:
+            continue
+        indexed[(str(row.get("dataset")), str(row.get("scenario")), int(seed), str(row.get("variant")))] = row
+    return indexed
+
+
+def build_seed_delta_rows(per_seed_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    indexed = index_rows(per_seed_rows)
+    keys = sorted({(dataset, scenario, seed) for dataset, scenario, seed, _variant in indexed})
+    variants_present = {str(row.get("variant")) for row in per_seed_rows}
+    stage3_available = "stage3_prompt_only_smartgen_tof" in variants_present
+    deltas: list[dict[str, Any]] = []
+    for dataset, scenario, seed in keys:
+        for compare_variant, base_variant in DELTA_PAIRS:
+            if base_variant == "stage3_prompt_only_smartgen_tof" and not stage3_available:
+                continue
+            compare = indexed.get((dataset, scenario, seed, compare_variant))
+            base = indexed.get((dataset, scenario, seed, base_variant))
+            if not compare or not base:
+                continue
+            item: dict[str, Any] = {
+                "dataset": dataset,
+                "scenario": scenario,
+                "seed": seed,
+                "compare_variant": compare_variant,
+                "base_variant": base_variant,
+                "stage3_available": stage3_available,
+                "comparison": f"{compare_variant} vs {base_variant}",
+            }
+            for metric in METRIC_FIELDS:
+                c = compare.get(metric)
+                b = base.get(metric)
+                item[f"{metric}_compare"] = c
+                item[f"{metric}_base"] = b
+                item[f"{metric}_delta"] = (c - b) if c is not None and b is not None else None
+            deltas.append(item)
+    meta = {
+        "stage3_available": stage3_available,
+        "variants_present": sorted(variants_present),
+        "note": "Delta rows are seed-level comparisons; do not infer conclusions from aggregate mean alone.",
+    }
+    return deltas, meta
+
+
+def jsonable(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {str(k): jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [jsonable(v) for v in obj]
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, float) and math.isnan(obj):
+        return None
+    return obj
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fields})
+
+
+def fmt(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, float):
+        return f"{value:.6f}"
+    return str(value)
+
+
+def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fields: list[str], note: str | None = None) -> None:
+    lines = [f"# {title}", ""]
+    if note:
+        lines.extend([note, ""])
+    if not rows:
+        lines.append("No rows found.")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
+    lines.append("| " + " | ".join(fields) + " |")
+    lines.append("| " + " | ".join(["---"] * len(fields)) + " |")
+    for row in rows:
+        lines.append("| " + " | ".join(fmt(row.get(field)) for field in fields) + " |")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]], delta_rows: list[dict[str, Any]], delta_meta: dict[str, Any]) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = "gen_builtin_ad_tof_corrected"
+
+    write_csv(out_dir / f"{prefix}_per_seed.csv", per_seed_rows, PER_SEED_FIELDS)
+    (out_dir / f"{prefix}_per_seed.json").write_text(json.dumps(jsonable(per_seed_rows), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown_table(
+        out_dir / f"{prefix}_per_seed.md",
+        "Stage4 Corrected SmartGen Built-in AD Per-Seed Results",
+        per_seed_rows,
+        PER_SEED_FIELDS,
+        note="Each row is one seed. These rows are the primary evidence table.",
+    )
+
+    aggregate_fields = ["table_type", "dataset", "scenario", "variant", "num_seeds", "seeds"] + [f"{m}_{s}" for m in METRIC_FIELDS for s in ("mean", "std")]
+    write_csv(out_dir / f"{prefix}_aggregate.csv", aggregate_rows, aggregate_fields)
+    (out_dir / f"{prefix}_aggregate.json").write_text(json.dumps(jsonable({"rows": aggregate_rows, "note": "aggregate is mean/std only and must not replace per-seed rows"}), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown_table(
+        out_dir / f"{prefix}_aggregate.md",
+        "Stage4 Corrected SmartGen Built-in AD Aggregate Results",
+        aggregate_rows,
+        aggregate_fields,
+        note="Aggregate rows are mean/std summaries only. Conclusions should be checked against seed-level deltas.",
+    )
+
+    delta_fields = ["dataset", "scenario", "seed", "comparison", "compare_variant", "base_variant", "stage3_available"] + [f"{m}_{suffix}" for m in METRIC_FIELDS for suffix in ("compare", "base", "delta")]
+    write_csv(out_dir / f"{prefix}_seed_deltas.csv", delta_rows, delta_fields)
+    (out_dir / f"{prefix}_seed_deltas.json").write_text(json.dumps(jsonable({"meta": delta_meta, "rows": delta_rows}), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown_table(
+        out_dir / f"{prefix}_seed_deltas.md",
+        "Stage4 Corrected SmartGen Built-in AD Seed-Level Deltas",
+        delta_rows,
+        delta_fields,
+        note=f"stage3_available={delta_meta.get('stage3_available')}. Deltas are compare minus base for each seed.",
+    )
+
+
+def main() -> None:
+    args = parse_args()
+    per_seed = collect_per_seed_rows(args.runs_root.resolve(), args.metrics_glob)
+    aggregate = build_aggregate_rows(per_seed)
+    deltas, meta = build_seed_delta_rows(per_seed)
+    write_outputs(args.out_dir.resolve(), per_seed, aggregate, deltas, meta)
+    print(f"per-seed rows: {len(per_seed)}")
+    print(f"aggregate rows: {len(aggregate)}")
+    print(f"seed-delta rows: {len(deltas)}")
+    print(f"saved summaries: {args.out_dir.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

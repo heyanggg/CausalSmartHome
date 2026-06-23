@@ -13,7 +13,6 @@ import pickle
 import random
 import sys
 
-from .smartguard_experiment import resolve_sweep_rows
 from .causal_filter import CausalConsistencyFilter
 from .causal_prior import CausalPrior
 from .schema import load_numeric_sequences
@@ -44,6 +43,44 @@ DEFAULT_THRESHOLD_PERCENTAGES = {
     ("us", "night"): 93.0,
     ("us", "multiple"): 99.0,
 }
+
+def resolve_sweep_rows(
+    sweep_summary_csv: str | Path,
+    slugs: Sequence[str] | None = None,
+    cwd: str | Path | None = None,
+) -> list[dict[str, str]]:
+    """Resolve kept_path rows from a generation/causal-filter sweep summary.
+
+    This small helper used to live in the optional SmartGuard wrapper.  It is
+    kept here so the SmartGen built-in AD mainline does not import or depend on
+    SmartGuard as a downstream pipeline.
+    """
+    summary = Path(sweep_summary_csv).resolve()
+    selected = set(slugs or [])
+    with open(summary, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    if selected:
+        rows = [row for row in rows if row.get("slug") in selected]
+    if selected and len(rows) != len(selected):
+        found = {row.get("slug") for row in rows}
+        missing = sorted(selected - found)
+        raise ValueError(f"sweep summary is missing selected slugs: {missing}")
+
+    root = Path(cwd).resolve() if cwd else Path.cwd()
+    resolved: list[dict[str, str]] = []
+    for row in rows:
+        kept = row.get("kept_path", "")
+        if not kept:
+            raise ValueError(f"row {row.get('slug')} has no kept_path")
+        kept_path = Path(kept)
+        if not kept_path.is_absolute():
+            candidate = root / kept_path
+            kept_path = candidate if candidate.exists() else kept_path.resolve()
+        item = dict(row)
+        item["kept_path"] = str(kept_path)
+        resolved.append(item)
+    return resolved
+
 
 
 @dataclass(frozen=True)
