@@ -10,7 +10,7 @@ def test_build_device_transition_graph_counts_device_edges():
     assert pairs[(2, 2)]["count"] == 1
 
 
-def test_gcad_edge_changes_final_score_and_modes_differ():
+def test_causal_relation_edge_changes_final_score_and_modes_differ():
     transitions = [
         {"source_device": 1, "target_device": 2, "transition_score": 0.2, "count": 2},
         {"source_device": 1, "target_device": 3, "transition_score": 0.4, "count": 4},

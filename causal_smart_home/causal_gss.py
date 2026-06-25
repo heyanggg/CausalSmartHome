@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from .causal_prior import CausalPrior
 from .event_tensor import EventTensorizer
-from .gcad_adapter import GCADAdapter
+from .causal_relation_adapter import CausalRelationAdapter
 from .schema import BehaviorSequence, load_numeric_sequences
 
 
@@ -41,7 +41,7 @@ def load_pickle_sequences(path: str | Path) -> list[BehaviorSequence]:
     return load_numeric_sequences(raw)
 
 
-def learn_device_gcad_prior(
+def learn_device_causal_relation_prior(
     sequences: Sequence[BehaviorSequence],
     lag: int = 4,
     epochs: int = 80,
@@ -53,7 +53,7 @@ def learn_device_gcad_prior(
     tensorized = EventTensorizer(level="device", count_mode="binary", decay=0.1).fit_transform(sequences)
     if not tensorized.channel_to_key:
         raise ValueError("no device channels found in source training data")
-    return GCADAdapter().mine_event_prior(
+    return CausalRelationAdapter().mine_event_prior(
         tensorized.tensor,
         tensorized.channel_to_key,
         lag=lag,
@@ -173,12 +173,12 @@ def build_causal_hints_payload(
     level: str = "device",
 ) -> dict[str, Any]:
     return {
-        "hint_type": "gcad_gss_device_prior",
+        "hint_type": "causal_gss_device_prior",
         "level": level,
         "constraint_strength": "soft",
         "intro": SOFT_CAUSAL_HINT_INTRO,
         "interpretation": (
-            "Each edge means the source device is a common historical predecessor or GCAD-style "
+            "Each edge means the source device is a common historical predecessor or causal-relation-style "
             "causal signal for the target device. Treat these as generation hints, not hard rules."
         ),
         "source_train_pkl": str(source_train_pkl),
@@ -193,7 +193,7 @@ def build_causal_hints_payload(
 def format_causal_hints_for_prompt(payload: Mapping[str, Any]) -> str:
     lines = [
         "",
-        "GCAD-GSS device-level causal hints (soft constraints):",
+        "causal-relation-guided GSS device-level causal hints (soft constraints):",
         str(payload["intro"]),
         "",
     ]
@@ -205,7 +205,7 @@ def format_causal_hints_for_prompt(payload: Mapping[str, Any]) -> str:
             lines.append(
                 f"{index}. If {edge['source_name']} and {edge['target_name']} appear together, "
                 f"{edge['source_name']} usually precedes {edge['target_name']} "
-                f"(GCAD weight={float(edge['weight']):.6f}, lag={int(edge['lag'])})."
+                f"(causal relation weight={float(edge['weight']):.6f}, lag={int(edge['lag'])})."
             )
     lines.extend(
         [
@@ -219,7 +219,7 @@ def format_causal_hints_for_prompt(payload: Mapping[str, Any]) -> str:
 
 def render_edges_markdown(edges: Sequence[DeviceCausalEdge], payload: Mapping[str, Any]) -> str:
     lines = [
-        "# Top Device-Level GCAD Causal Edges",
+        "# Top Device-Level causal relation Causal Edges",
         "",
         payload.get("intro", SOFT_CAUSAL_HINT_INTRO),
         "",

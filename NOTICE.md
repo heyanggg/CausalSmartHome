@@ -1,1 +1,1 @@
-This package includes unmodified Python-file snapshots of SmartGuard, SmartGen and GCAD under external_sources/ only as adapter targets and source-code references. They are not edited by the glue layer. Datasets, trained weights and LLM API keys are not included in the uploaded tarball, so the included automated tests use synthetic toy data.
+This package vendors the Gen code and SP-ST data needed to reproduce the current CausalSmartHome main experiment. Large model/data artifacts should be reviewed before public release.

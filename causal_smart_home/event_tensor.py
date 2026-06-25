@@ -16,12 +16,12 @@ class TensorizedEvents:
 
 
 class EventTensorizer:
-    """Bridge user behavior sequences to GCAD-style multivariate time series.
+    """Bridge user behavior sequences to causal-relation-style multivariate time series.
 
-    SmartGuard/SmartGen operate on discrete behavior sequences. GCAD operates on
-    multivariate time series. This tensorizer is the glue bridge: every action,
+    Gen operate on discrete behavior sequences. causal relation modeling operates on
+    multivariate time series. This tensorizer is the integration bridge: every action,
     device or device-action pair becomes a channel, and every 3-hour bin becomes
-    a time step. The output is a dense [T, C] array usable by GCAD-style causal
+    a time step. The output is a dense [T, C] array usable by causal-relation-style causal
     mining, without changing any of the original projects.
     """
 

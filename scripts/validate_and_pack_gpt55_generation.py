@@ -19,7 +19,7 @@ from causal_smart_home.schema import load_numeric_sequences
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate and pack GPT-5.5 SmartGen flat-quadruple JSONL.")
+    parser = argparse.ArgumentParser(description="Validate and pack GPT-5.5 Gen flat-quadruple JSONL.")
     parser.add_argument("--input-jsonl", required=True, type=Path)
     parser.add_argument("--out-pkl", required=True, type=Path)
     parser.add_argument("--out-validation-report", required=True, type=Path)
@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--schema-json", type=Path)
     parser.add_argument("--guard-report-json", type=Path)
     parser.add_argument("--guarded-hints-json", type=Path)
-    parser.add_argument("--resolved-gcad-prior-json", type=Path)
+    parser.add_argument("--resolved-causal-relation-prior-json", type=Path)
     return parser.parse_args()
 
 
@@ -101,7 +101,6 @@ def main() -> None:
         "api_llm": False,
         "manual_generation": True,
         "gpt55_generation_assisted": True,
-        "surrogate_algorithm": False,
         "num_generated": len(clean_rows),
         "dataset": args.dataset,
         "scenario": args.scenario,
@@ -114,12 +113,12 @@ def main() -> None:
         "schema_json": resolved_or_none(args.schema_json),
         "guard_report_json": resolved_or_none(args.guard_report_json),
         "guarded_hints_json": resolved_or_none(args.guarded_hints_json),
-        "resolved_gcad_prior_json": resolved_or_none(args.resolved_gcad_prior_json),
+        "resolved_causal_relation_prior_json": resolved_or_none(args.resolved_causal_relation_prior_json),
         "source_pkl": resolved_or_none(args.source_pkl),
         "target_pkl": resolved_or_none(args.target_pkl),
         "notes": (
             "Sequence content was authored by the GPT-5.5-assisted generation process from the prompt package, "
-            "guarded GSS hints, GCAD prior, dictionary, and source/target distribution inspection. "
+            "guarded GSS hints, causal relation prior, dictionary, and source/target distribution inspection. "
             "This script only validated and packed the authored JSONL."
         ),
     }

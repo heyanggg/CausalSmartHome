@@ -11,20 +11,20 @@ import numpy as np
 
 from .causal_prior import CausalPrior
 from .event_tensor import EventTensorizer
-from .gcad_adapter import GCADAdapter
+from .causal_relation_adapter import CausalRelationAdapter
 from .schema import BehaviorSequence, load_numeric_sequences
 
 
 @dataclass
-class ResolvedGCADPrior:
-    """Unified, JSON-serializable view of a GCAD causal prior.
+class ResolvedCausalRelationPrior:
+    """Unified, JSON-serializable view of a causal relation prior.
 
     The object records where the causal matrix came from.  When the project has
-    to use the local compact adapter fallback, ``gcad_source`` says so
-    explicitly; this must not be reported as an official GCAD reproduction.
+    to use the local compact adapter fallback, ``causal_relation_source`` says so
+    explicitly.
     """
 
-    gcad_source: str
+    causal_relation_source: str
     level: str
     lag: int
     sparse_threshold: float
@@ -44,7 +44,7 @@ class ResolvedGCADPrior:
             channel_to_key=self.channels,
             lag=self.lag,
             sparse_threshold=self.sparse_threshold,
-            method=self.gcad_source,
+            method=self.causal_relation_source,
             meta={"resolved_config": self.config, **(self.meta or {})},
         )
 
@@ -60,22 +60,22 @@ class ResolvedGCADPrior:
 _PREFIX_BY_LEVEL = {"device": "d", "action": "a", "device_action": "da"}
 
 
-def resolve_gcad_prior(
+def resolve_causal_relation_prior(
     prior_json: str | None = None,
     prior_matrix_path: str | None = None,
     source_pkl: str | None = None,
     out_dir: str | None = None,
-    gcad_project_dir: str | None = None,
+    causal_relation_project_dir: str | None = None,
     adapter_mode: str = "existing",
     level: str = "device",
     lag: int = 4,
     sparse_threshold: float = 0.001,
     seed: int = 2024,
-) -> ResolvedGCADPrior:
-    """Resolve a GCAD causal prior from an existing artifact or adapter call.
+) -> ResolvedCausalRelationPrior:
+    """Resolve a causal relation prior from an existing artifact or adapter call.
 
     Priority is deliberately simple: existing prior JSON, then existing matrix,
-    then the current project's GCAD adapter/causal_prior bridge over source_pkl.
+    then the current project's causal relation adapter over source_pkl.
     No new causal discovery algorithm is implemented here.
     """
 
@@ -84,7 +84,7 @@ def resolve_gcad_prior(
         "prior_matrix_path": str(prior_matrix_path) if prior_matrix_path else None,
         "source_pkl": str(source_pkl) if source_pkl else None,
         "out_dir": str(out_dir) if out_dir else None,
-        "gcad_project_dir": str(gcad_project_dir) if gcad_project_dir else None,
+        "causal_relation_project_dir": str(causal_relation_project_dir) if causal_relation_project_dir else None,
         "adapter_mode": adapter_mode,
         "level": level,
         "lag": lag,
@@ -95,7 +95,7 @@ def resolve_gcad_prior(
     if level not in {"device", "action", "device_action"}:
         raise ValueError("level must be one of: device, action, device_action")
     if adapter_mode not in {"existing", "compact_fallback"}:
-        raise ValueError("adapter_mode must be 'existing' or 'compact_fallback' in this glue layer")
+        raise ValueError("adapter_mode must be 'existing' or 'compact_fallback' in this integration layer")
 
     if prior_json:
         resolved = _resolved_from_prior_json(Path(prior_json), level=level, fallback_lag=lag, fallback_threshold=sparse_threshold, config=config)
@@ -117,7 +117,7 @@ def resolve_gcad_prior(
         resolved = _resolved_from_existing_adapter(
             source_pkl=Path(source_pkl),
             out_dir=Path(out_dir) if out_dir else None,
-            gcad_project_dir=Path(gcad_project_dir) if gcad_project_dir else None,
+            causal_relation_project_dir=Path(causal_relation_project_dir) if causal_relation_project_dir else None,
             level=level,
             lag=lag,
             sparse_threshold=sparse_threshold,
@@ -127,7 +127,7 @@ def resolve_gcad_prior(
         _maybe_save(resolved, out_dir)
         return resolved
 
-    raise ValueError("resolve_gcad_prior requires prior_json, prior_matrix_path, or source_pkl; no prior source was provided")
+    raise ValueError("resolve_causal_relation_prior requires prior_json, prior_matrix_path, or source_pkl; no prior source was provided")
 
 
 def _resolved_from_prior_json(
@@ -136,7 +136,7 @@ def _resolved_from_prior_json(
     fallback_lag: int,
     fallback_threshold: float,
     config: dict[str, Any],
-) -> ResolvedGCADPrior:
+) -> ResolvedCausalRelationPrior:
     if not path.exists():
         raise FileNotFoundError(f"prior_json not found: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -152,9 +152,9 @@ def _resolved_from_prior_json(
     lag = int(payload.get("lag", fallback_lag))
     threshold = float(payload.get("sparse_threshold", fallback_threshold))
     source = str(
-        payload.get("gcad_source")
+        payload.get("causal_relation_source")
         or payload.get("method")
-        or payload.get("meta", {}).get("gcad_source")
+        or payload.get("meta", {}).get("causal_relation_source")
         or "existing_prior_json"
     )
     top_edges = payload.get("top_causal_edges")
@@ -163,8 +163,8 @@ def _resolved_from_prior_json(
     else:
         top_edges = _standardize_edges(top_edges, channels=channels, lag=lag)
 
-    return ResolvedGCADPrior(
-        gcad_source=source,
+    return ResolvedCausalRelationPrior(
+        causal_relation_source=source,
         level=str(payload.get("level") or level),
         lag=lag,
         sparse_threshold=threshold,
@@ -182,7 +182,7 @@ def _resolved_from_matrix_path(
     lag: int,
     sparse_threshold: float,
     config: dict[str, Any],
-) -> ResolvedGCADPrior:
+) -> ResolvedCausalRelationPrior:
     if not path.exists():
         raise FileNotFoundError(f"prior_matrix_path not found: {path}")
     channels: list[str] | None = None
@@ -205,8 +205,8 @@ def _resolved_from_matrix_path(
     else:
         raise ValueError("prior_matrix_path must be .json, .npy, .csv or .txt")
     channels = channels or _default_channels(len(matrix), level)
-    return ResolvedGCADPrior(
-        gcad_source="prior_matrix_path",
+    return ResolvedCausalRelationPrior(
+        causal_relation_source="prior_matrix_path",
         level=level,
         lag=lag,
         sparse_threshold=sparse_threshold,
@@ -221,13 +221,13 @@ def _resolved_from_matrix_path(
 def _resolved_from_existing_adapter(
     source_pkl: Path,
     out_dir: Path | None,
-    gcad_project_dir: Path | None,
+    causal_relation_project_dir: Path | None,
     level: str,
     lag: int,
     sparse_threshold: float,
     seed: int,
     config: dict[str, Any],
-) -> ResolvedGCADPrior:
+) -> ResolvedCausalRelationPrior:
     if not source_pkl.exists():
         raise FileNotFoundError(f"source_pkl not found: {source_pkl}")
     sequences = _load_behavior_sequences_from_pickle(source_pkl)
@@ -239,9 +239,9 @@ def _resolved_from_existing_adapter(
         raise ValueError(f"source_pkl yielded no {level} channels: {source_pkl}")
 
     # Reuse the existing project adapter.  The current adapter delegates to the
-    # compact GCAD-style GradientCausalMiner fallback for event tensors, so the
+    # compact causal-relation-style GradientCausalMiner fallback for event tensors, so the
     # resolved source is marked explicitly.
-    adapter = GCADAdapter(str(gcad_project_dir) if gcad_project_dir else None)
+    adapter = CausalRelationAdapter(str(causal_relation_project_dir) if causal_relation_project_dir else None)
     prior = adapter.mine_event_prior(
         tensorized.tensor,
         tensorized.channel_to_key,
@@ -255,20 +255,20 @@ def _resolved_from_existing_adapter(
     source = "existing_adapter_compact_fallback"
     matrix = _matrix_to_list(prior.matrix)
     channels = list(prior.channel_to_key)
-    resolved = ResolvedGCADPrior(
-        gcad_source=source,
+    resolved = ResolvedCausalRelationPrior(
+        causal_relation_source=source,
         level=level,
         lag=prior.lag,
         sparse_threshold=prior.sparse_threshold,
         channels=channels,
         matrix=matrix,
         top_causal_edges=_standardize_edges(prior.top_edges(k=50, include_self=False), channels=channels, lag=prior.lag),
-        config={**config, "resolved_from": str(source_pkl), "gcad_source": source},
+        config={**config, "resolved_from": str(source_pkl), "causal_relation_source": source},
         meta={
             "input_format": "source_pkl_via_existing_adapter",
             "sequence_count": len(sequences),
             "tensor_shape": list(tensorized.tensor.shape),
-            "adapter_note": "GCADAdapter.mine_event_prior calls the existing compact GCAD-style fallback for event tensors.",
+            "adapter_note": "CausalRelationAdapter.mine_event_prior calls the existing compact causal-relation-style fallback for event tensors.",
             **(prior.meta or {}),
         },
     )
@@ -312,7 +312,7 @@ def _extract_flat_sequence(item: Any) -> list[int] | None:
 def _matrix_to_list(matrix: Any) -> list[list[float]]:
     arr = np.asarray(matrix, dtype=np.float32)
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
-        raise ValueError(f"GCAD prior matrix must be square 2-D, got shape {arr.shape}")
+        raise ValueError(f"causal relation prior matrix must be square 2-D, got shape {arr.shape}")
     return [[float(v) for v in row] for row in arr.tolist()]
 
 
@@ -408,6 +408,6 @@ def _index_by_channel(channels: Sequence[str], channel: str) -> int | None:
         return None
 
 
-def _maybe_save(resolved: ResolvedGCADPrior, out_dir: str | None) -> None:
+def _maybe_save(resolved: ResolvedCausalRelationPrior, out_dir: str | None) -> None:
     if out_dir:
-        resolved.save(Path(out_dir) / "resolved_gcad_prior.json")
+        resolved.save(Path(out_dir) / "resolved_causal_relation_prior.json")

@@ -48,18 +48,20 @@ PER_SEED_FIELDS = [
 
 METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
 
+KEPT_VARIANTS = {
+    "ablation_no_causal_tof",
+    "proposed_causal_gss_gpt55_causal_tof",
+}
+
 DELTA_PAIRS = [
-    ("stage4_smartgen_original_tof", "stage3_prompt_only_smartgen_tof"),
-    ("stage4_smartgen_original_tof_plus_causal_tof", "stage3_prompt_only_smartgen_tof"),
-    ("stage4_smartgen_original_tof_plus_causal_tof", "stage4_smartgen_original_tof"),
-    ("stage4_raw_no_smartgen_tof", "stage4_smartgen_original_tof"),
+    ("proposed_causal_gss_gpt55_causal_tof", "ablation_no_causal_tof"),
 ]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize corrected Stage4 SmartGen built-in AD results with per-seed rows and seed-level deltas.")
-    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "gcad_gss_stage4")
-    parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs" / "gcad_gss_stage4" / "gen_builtin_ad_tof_corrected")
+    parser = argparse.ArgumentParser(description="Summarize the current main experiment downstream AD results.")
+    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "downstream_ad")
+    parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "summary")
     parser.add_argument("--metrics-glob", default="**/normalized_metrics.json")
     return parser.parse_args()
 
@@ -69,13 +71,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def collect_metric_files(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[Path]:
-    """Collect normalized per-run metrics.
-
-    The corrected Stage4 run directory itself is named
-    gen_builtin_ad_tof_corrected, so do not exclude that path component.
-    Summary outputs are CSV/MD/JSON aggregate files and do not match
-    normalized_metrics.json anyway.
-    """
+    """Collect normalized per-run metrics."""
     return sorted(path for path in runs_root.glob(metrics_glob) if path.is_file())
 
 
@@ -134,7 +130,9 @@ def collect_per_seed_rows(runs_root: Path, metrics_glob: str = "**/normalized_me
     rows = []
     for path in collect_metric_files(runs_root, metrics_glob):
         payload = load_json(path)
-        rows.append(normalize_metric_row(payload, path))
+        row = normalize_metric_row(payload, path)
+        if row.get("variant") in KEPT_VARIANTS:
+            rows.append(row)
     rows.sort(key=lambda r: (str(r.get("dataset")), str(r.get("scenario")), int(r.get("seed") or -1), str(r.get("variant"))))
     return rows
 
@@ -184,12 +182,9 @@ def build_seed_delta_rows(per_seed_rows: list[dict[str, Any]]) -> tuple[list[dic
     indexed = index_rows(per_seed_rows)
     keys = sorted({(dataset, scenario, seed) for dataset, scenario, seed, _variant in indexed})
     variants_present = {str(row.get("variant")) for row in per_seed_rows}
-    stage3_available = "stage3_prompt_only_smartgen_tof" in variants_present
     deltas: list[dict[str, Any]] = []
     for dataset, scenario, seed in keys:
         for compare_variant, base_variant in DELTA_PAIRS:
-            if base_variant == "stage3_prompt_only_smartgen_tof" and not stage3_available:
-                continue
             compare = indexed.get((dataset, scenario, seed, compare_variant))
             base = indexed.get((dataset, scenario, seed, base_variant))
             if not compare or not base:
@@ -200,7 +195,6 @@ def build_seed_delta_rows(per_seed_rows: list[dict[str, Any]]) -> tuple[list[dic
                 "seed": seed,
                 "compare_variant": compare_variant,
                 "base_variant": base_variant,
-                "stage3_available": stage3_available,
                 "comparison": f"{compare_variant} vs {base_variant}",
             }
             for metric in METRIC_FIELDS:
@@ -211,9 +205,8 @@ def build_seed_delta_rows(per_seed_rows: list[dict[str, Any]]) -> tuple[list[dic
                 item[f"{metric}_delta"] = (c - b) if c is not None and b is not None else None
             deltas.append(item)
     meta = {
-        "stage3_available": stage3_available,
         "variants_present": sorted(variants_present),
-        "note": "Delta rows are seed-level comparisons; do not infer conclusions from aggregate mean alone.",
+        "note": "Delta rows compare the proposed method against the w/o Causal-TOF ablation for each seed.",
     }
     return deltas, meta
 
@@ -264,13 +257,13 @@ def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fie
 
 def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]], delta_rows: list[dict[str, Any]], delta_meta: dict[str, Any]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    prefix = "gen_builtin_ad_tof_corrected"
+    prefix = "main_experiment"
 
     write_csv(out_dir / f"{prefix}_per_seed.csv", per_seed_rows, PER_SEED_FIELDS)
     (out_dir / f"{prefix}_per_seed.json").write_text(json.dumps(jsonable(per_seed_rows), ensure_ascii=False, indent=2), encoding="utf-8")
     write_markdown_table(
         out_dir / f"{prefix}_per_seed.md",
-        "Stage4 Corrected SmartGen Built-in AD Per-Seed Results",
+        "Main Experiment Gen Built-in AD Per-Seed Results",
         per_seed_rows,
         PER_SEED_FIELDS,
         note="Each row is one seed. These rows are the primary evidence table.",
@@ -281,21 +274,21 @@ def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]], aggregate_
     (out_dir / f"{prefix}_aggregate.json").write_text(json.dumps(jsonable({"rows": aggregate_rows, "note": "aggregate is mean/std only and must not replace per-seed rows"}), ensure_ascii=False, indent=2), encoding="utf-8")
     write_markdown_table(
         out_dir / f"{prefix}_aggregate.md",
-        "Stage4 Corrected SmartGen Built-in AD Aggregate Results",
+        "Main Experiment Gen Built-in AD Aggregate Results",
         aggregate_rows,
         aggregate_fields,
         note="Aggregate rows are mean/std summaries only. Conclusions should be checked against seed-level deltas.",
     )
 
-    delta_fields = ["dataset", "scenario", "seed", "comparison", "compare_variant", "base_variant", "stage3_available"] + [f"{m}_{suffix}" for m in METRIC_FIELDS for suffix in ("compare", "base", "delta")]
+    delta_fields = ["dataset", "scenario", "seed", "comparison", "compare_variant", "base_variant"] + [f"{m}_{suffix}" for m in METRIC_FIELDS for suffix in ("compare", "base", "delta")]
     write_csv(out_dir / f"{prefix}_seed_deltas.csv", delta_rows, delta_fields)
     (out_dir / f"{prefix}_seed_deltas.json").write_text(json.dumps(jsonable({"meta": delta_meta, "rows": delta_rows}), ensure_ascii=False, indent=2), encoding="utf-8")
     write_markdown_table(
         out_dir / f"{prefix}_seed_deltas.md",
-        "Stage4 Corrected SmartGen Built-in AD Seed-Level Deltas",
+        "Main Experiment Gen Built-in AD Seed-Level Deltas",
         delta_rows,
         delta_fields,
-        note=f"stage3_available={delta_meta.get('stage3_available')}. Deltas are compare minus base for each seed.",
+        note="Deltas are compare minus base for each seed.",
     )
 
 

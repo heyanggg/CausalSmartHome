@@ -1,8 +1,4 @@
-"""Causal Smart Home.
-
-This package is intentionally a glue layer. It wraps or consumes outputs from
-SmartGuard, SmartGen and GCAD-style causal mining without editing those projects.
-"""
+"""CausalSmartHome main experiment package."""
 
 from .schema import BehaviorEvent, BehaviorSequence
 from .event_tensor import EventTensorizer

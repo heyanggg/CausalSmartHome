@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from causal_smart_home.gcad_prior_source import ResolvedGCADPrior, resolve_gcad_prior
+from causal_smart_home.causal_relation_prior_source import ResolvedCausalRelationPrior, resolve_causal_relation_prior
 from causal_smart_home.causal_gss_reweight import build_device_transition_graph, reweight_gss_edges
 from causal_smart_home.target_distribution_guard import (
     TargetDistributionGuardConfig,
@@ -24,12 +24,12 @@ from causal_smart_home.causal_gss import load_id_name_mapping, device_key_to_nam
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build Stage 4 guarded causal-reweighted GSS prompt artifacts.")
-    parser.add_argument("--source-pkl", required=True, help="Source-context normal SmartGen/SmartGuard flattened pkl.")
+    parser = argparse.ArgumentParser(description="Build causal-relation-guided GSS prompt artifacts.")
+    parser.add_argument("--source-pkl", required=True, help="Source-context normal Gen flattened pkl.")
     parser.add_argument("--target-pkl", required=True, help="Target-context normal pkl for distribution guard.")
-    parser.add_argument("--prior-json", help="Existing causal_prior.json or resolved_gcad_prior.json. If absent, source-pkl is passed to existing adapter.")
+    parser.add_argument("--prior-json", help="Existing causal_prior.json or resolved_causal_relation_prior.json. If absent, source-pkl is passed to existing adapter.")
     parser.add_argument("--prior-matrix-path", help="Existing causal matrix .json/.npy/.csv.")
-    parser.add_argument("--gcad-project-dir", help="Optional GCAD project root for existing adapter path resolution.")
+    parser.add_argument("--causal-relation-project-dir", help=argparse.SUPPRESS)
     parser.add_argument("--adapter-mode", default="existing", choices=["existing", "compact_fallback"])
     parser.add_argument("--level", default="device", choices=["device", "action", "device_action"])
     parser.add_argument("--lag", type=int, default=4)
@@ -82,12 +82,12 @@ def main(argv: list[str] | None = None) -> None:
     for path in (out_prompt, out_prior, out_guard, out_hints, out_config):
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    prior = resolve_gcad_prior(
+    prior = resolve_causal_relation_prior(
         prior_json=args.prior_json,
         prior_matrix_path=args.prior_matrix_path,
         source_pkl=str(source_pkl) if not args.prior_json and not args.prior_matrix_path else None,
         out_dir=str(out_prompt.parent),
-        gcad_project_dir=args.gcad_project_dir,
+        causal_relation_project_dir=args.causal_relation_project_dir,
         adapter_mode=args.adapter_mode,
         level=args.level,
         lag=args.lag,
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> None:
         "num_edges": transition_graph["num_edges"],
         "num_sequences": transition_graph["num_sequences"],
     }
-    reweighted["gcad_source"] = prior.gcad_source
+    reweighted["causal_relation_source"] = prior.causal_relation_source
     reweighted["guard_report_path"] = str(out_guard)
     out_hints.write_text(json.dumps(jsonable(reweighted), ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -145,12 +145,12 @@ def main(argv: list[str] | None = None) -> None:
         "target_pkl": str(target_pkl),
         "outputs": {
             "prompt": str(out_prompt),
-            "resolved_gcad_prior": str(out_prior),
+            "resolved_causal_relation_prior": str(out_prior),
             "guard_report": str(out_guard),
             "guarded_reweighted_gss_hints": str(out_hints),
             "config": str(out_config),
         },
-        "gcad_source": prior.gcad_source,
+        "causal_relation_source": prior.causal_relation_source,
         "source_distribution": source_distribution,
         "target_distribution": target_distribution,
         "summary": reweighted.get("summary", {}),
@@ -196,13 +196,13 @@ def annotate_guard_report_device_names(report: dict[str, Any], device_mapping: d
     return out
 
 
-def build_prompt_text(prior: ResolvedGCADPrior, transition_graph: dict, guard_report: dict, reweighted: dict, args: argparse.Namespace) -> str:
+def build_prompt_text(prior: ResolvedCausalRelationPrior, transition_graph: dict, guard_report: dict, reweighted: dict, args: argparse.Namespace) -> str:
     transition_edges = transition_graph.get("edges", [])[: args.top_k]
     raw_edges = prior.top_causal_edges[: args.top_k]
     guarded_edges = reweighted.get("edges", [])[: args.top_k]
     payload = {
         "original_smartgen_gss_transition_hints": transition_edges,
-        "raw_gcad_causal_hints": raw_edges,
+        "raw_causal_relation_hints": raw_edges,
         "target_distribution_guard_report_summary": {
             "overused_devices": guard_report.get("overused_devices", []),
             "num_suppressed_edges": guard_report.get("num_suppressed_edges", 0),
@@ -212,21 +212,21 @@ def build_prompt_text(prior: ResolvedGCADPrior, transition_graph: dict, guard_re
     }
     return "\n".join(
         [
-            "You are an IoT behavior-sequence synthesis assistant for SmartGen Stage 4.",
+            "You are an IoT behavior-sequence synthesis assistant for Gen.",
             "Generate target-context smart-home behavior sequences using the structural hints below.",
             "",
             "Important guidance precedence:",
             "Use the guarded causal-reweighted GSS hints as the primary structural guidance.",
-            "Use raw GCAD causal hints only as weak background evidence.",
-            "If raw GCAD causal hints conflict with guarded reweighted hints, follow the guarded reweighted hints.",
+            "Use raw causal relation causal hints only as weak background evidence.",
+            "If raw causal relation causal hints conflict with guarded reweighted hints, follow the guarded reweighted hints.",
             "Do not over-generate devices marked as overused in the target-distribution guard report.",
-            "Do not treat GCAD edges as physical ground-truth causality; they are source-context predictive causal signals.",
-            "Keep all generated behaviors in the legal SmartGen/SmartGuard flattened format.",
+            "Do not treat causal relation edges as physical ground-truth causality; they are source-context predictive causal signals.",
+            "Keep all generated behaviors in the legal Gen flattened format.",
             "",
             "JSON structural hints:",
             json.dumps(jsonable(payload), ensure_ascii=False, indent=2),
             "",
-            "Return generated sequences only in the expected SmartGen format; do not explain unless asked.",
+            "Return generated sequences only in the expected Gen format; do not explain unless asked.",
         ]
     )
 

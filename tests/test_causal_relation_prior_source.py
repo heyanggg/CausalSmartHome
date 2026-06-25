@@ -5,14 +5,14 @@ import pickle
 import pytest
 
 from causal_smart_home.causal_prior import CausalPrior
-from causal_smart_home.gcad_prior_source import resolve_gcad_prior
+from causal_smart_home.causal_relation_prior_source import resolve_causal_relation_prior
 
 
 
 def make_toy_normal_sequences(num_sequences=20, seed=2024, sequence_length=10):
     """Local toy flat-quadruple sequence generator for tests.
 
-    Returns SmartGen/SmartGuard-style flat sequences:
+    Returns Gen-style flat sequences:
     [day, hour_slot, device_id, action_id, ...]
     """
     import random
@@ -38,21 +38,21 @@ def make_toy_normal_sequences(num_sequences=20, seed=2024, sequence_length=10):
 pytestmark = pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch needed for adapter fallback")
 
 
-def test_resolve_gcad_prior_reads_existing_json(tmp_path):
+def test_resolve_causal_relation_prior_reads_existing_json(tmp_path):
     prior = CausalPrior(matrix=[[0.0, 0.5], [0.0, 0.0]], channel_to_key=["d:1", "d:2"], lag=4, sparse_threshold=0.001)
     path = tmp_path / "causal_prior.json"
     prior.save(path)
 
-    resolved = resolve_gcad_prior(prior_json=str(path), out_dir=str(tmp_path / "out"), level="device")
+    resolved = resolve_causal_relation_prior(prior_json=str(path), out_dir=str(tmp_path / "out"), level="device")
 
     assert resolved.channels == ["d:1", "d:2"]
     assert resolved.top_causal_edges[0]["source"] == "d:1"
     assert resolved.top_causal_edges[0]["target"] == "d:2"
-    assert (tmp_path / "out" / "resolved_gcad_prior.json").exists()
+    assert (tmp_path / "out" / "resolved_causal_relation_prior.json").exists()
     json.dumps(resolved.to_json_dict())
 
 
-def test_resolve_gcad_prior_without_prior_uses_existing_adapter_fallback(tmp_path, monkeypatch):
+def test_resolve_causal_relation_prior_without_prior_uses_existing_adapter_fallback(tmp_path, monkeypatch):
     seqs = make_toy_normal_sequences(2)
     source = tmp_path / "source.pkl"
     with open(source, "wb") as f:
@@ -69,11 +69,11 @@ def test_resolve_gcad_prior_without_prior_uses_existing_adapter_fallback(tmp_pat
             sparse_threshold=kwargs.get("sparse_threshold", 0.0),
         )
 
-    monkeypatch.setattr("causal_smart_home.gcad_prior_source.GCADAdapter.mine_event_prior", fake_mine_event_prior)
-    resolved = resolve_gcad_prior(source_pkl=str(source), out_dir=str(tmp_path / "out"), level="device", lag=2, sparse_threshold=0.0)
+    monkeypatch.setattr("causal_smart_home.causal_relation_prior_source.CausalRelationAdapter.mine_event_prior", fake_mine_event_prior)
+    resolved = resolve_causal_relation_prior(source_pkl=str(source), out_dir=str(tmp_path / "out"), level="device", lag=2, sparse_threshold=0.0)
 
     assert calls["count"] == 1
-    assert resolved.gcad_source == "existing_adapter_compact_fallback"
-    assert resolved.config["gcad_source"] == "existing_adapter_compact_fallback"
+    assert resolved.causal_relation_source == "existing_adapter_compact_fallback"
+    assert resolved.config["causal_relation_source"] == "existing_adapter_compact_fallback"
     assert len(resolved.channels) == 2
-    assert (tmp_path / "out" / "resolved_gcad_prior.json").exists()
+    assert (tmp_path / "out" / "resolved_causal_relation_prior.json").exists()

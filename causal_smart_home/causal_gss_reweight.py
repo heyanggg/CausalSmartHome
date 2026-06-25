@@ -54,7 +54,7 @@ def reweight_gss_edges(
     add_causal_edges: bool = False,
     top_k: int = 50,
 ) -> dict:
-    """Let guarded GCAD edges participate in SmartGen GSS edge scoring."""
+    """Let guarded causal relation edges participate in SmartGen GSS edge scoring."""
 
     if mode not in {"multiplicative", "additive"}:
         raise ValueError("mode must be multiplicative or additive")
@@ -116,7 +116,7 @@ def reweight_gss_edges(
                 max_causal=max_causal,
                 lambda_causal=lambda_causal,
                 mode="additive" if mode == "additive" else mode,
-                origin="gcad_augmented",
+                origin="causal_relation_augmented",
             )
             if mode == "multiplicative" and row["final_score"] == 0.0:
                 # A purely causal augmented edge should not vanish in
@@ -141,7 +141,7 @@ def reweight_gss_edges(
             "input_transition_edges": len(transition_edges),
             "input_causal_edges": len(causal_edges),
             "output_edges": len(out_edges),
-            "num_gcad_augmented_edges": sum(1 for edge in out_edges if edge.get("edge_origin") == "gcad_augmented"),
+            "num_causal_relation_augmented_edges": sum(1 for edge in out_edges if edge.get("edge_origin") == "causal_relation_augmented"),
             "num_guard_suppressed_edges": sum(1 for edge in out_edges if edge.get("guard_action") == "suppress"),
             "num_guard_downweighted_edges": sum(1 for edge in out_edges if edge.get("guard_action") == "downweight"),
             "avg_guarded_causal_strength": _mean([float(edge.get("guarded_causal_strength", 0.0)) for edge in out_edges]),

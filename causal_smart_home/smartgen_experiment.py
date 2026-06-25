@@ -51,9 +51,9 @@ def resolve_sweep_rows(
 ) -> list[dict[str, str]]:
     """Resolve kept_path rows from a generation/causal-filter sweep summary.
 
-    This small helper used to live in the optional SmartGuard wrapper.  It is
+    This small helper used to live in the optional Gen wrapper.  It is
     kept here so the SmartGen built-in AD mainline does not import or depend on
-    SmartGuard as a downstream pipeline.
+    Gen as a downstream pipeline.
     """
     summary = Path(sweep_summary_csv).resolve()
     selected = set(slugs or [])

@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-copies", type=int, default=3)
     parser.add_argument("--resample-size", type=int)
     parser.add_argument("--seed", type=int, default=2024)
-    parser.add_argument("--input-stage", default="smartgen_original_tof", choices=["raw_no_smartgen_tof", "smartgen_original_tof"], help="Provenance marker only; corrected mainline uses smartgen_original_tof.")
+    parser.add_argument("--input-stage", default="gen_original_tof", choices=["gen_original_tof"], help="Provenance marker for the input pkl.")
     return parser.parse_args()
 
 

@@ -8,20 +8,13 @@ import numpy as np
 from .causal_prior import GradientCausalMiner, CausalPrior
 
 
-class GCADAdapter:
-    """Adapter for GCAD or a compact GCAD-style fallback.
+class CausalRelationAdapter:
+    """Adapter for the compact causal-relation prior miner."""
 
-    The original GCAD code is written as an experiment script around train.csv
-    and test.csv. For glue use, the safest non-invasive route is to either:
-    1) call the original CLI on prepared CSV folders, or
-    2) use the compact GradientCausalMiner implemented in this package for
-       event tensors, which keeps the GCAD idea but does not edit GCAD code.
-    """
-
-    def __init__(self, gcad_root: str | None = None) -> None:
-        self.gcad_root = Path(gcad_root).resolve() if gcad_root else None
-        if self.gcad_root:
-            sys.path.insert(0, str(self.gcad_root))
+    def __init__(self, causal_relation_root: str | None = None) -> None:
+        self.causal_relation_root = Path(causal_relation_root).resolve() if causal_relation_root else None
+        if self.causal_relation_root:
+            sys.path.insert(0, str(self.causal_relation_root))
 
     def mine_event_prior(
         self,

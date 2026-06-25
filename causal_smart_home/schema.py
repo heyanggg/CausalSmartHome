@@ -14,7 +14,7 @@ HOURS_PER_WEEK = 24 * DAYS_PER_WEEK
 class BehaviorEvent:
     """One smart-home behavior event.
 
-    The original SmartGuard/SmartGen numeric format stores each behavior as
+    The original Gen numeric format stores each behavior as
     [day, hour_slot, device_id, action_id], where hour_slot usually denotes a
     3-hour bin. Textual SmartGen outputs can be converted to the same logical
     object by filling names instead of ids.
@@ -84,7 +84,7 @@ class BehaviorSequence:
 
 
 def load_numeric_sequences(obj: Iterable[Sequence[int]]) -> list[BehaviorSequence]:
-    """Convert an iterable of SmartGuard/SmartGen flattened numeric sequences."""
+    """Convert an iterable of Gen flattened numeric sequences."""
     return [BehaviorSequence.from_flat_numeric(seq, sequence_id=str(i)) for i, seq in enumerate(obj)]
 
 

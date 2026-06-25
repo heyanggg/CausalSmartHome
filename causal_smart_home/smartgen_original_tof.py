@@ -19,13 +19,13 @@ ENV_BY_SCENARIO = {"st": "spring", "tt": "night", "nt": "multiple"}
 
 @dataclass(frozen=True)
 class SmartGenOriginalTOFConfig:
-    """Configuration for invoking SmartGen's original two-stage TOF.
+    """Configuration for invoking Gen's original two-stage TOF.
 
-    The wrapper does not reimplement TOF.  For real runs it copies the fresh
-    generated pkl into the original SmartGen path layout and calls
+    The wrapper does not reimplement TOF. For real runs it copies the fresh
+    generated pkl into the Gen path layout and calls
     ``security_check.security_check(dataset, env, threshold, method, model)``.
-    The original script then performs Stage 1 IQR reconstruction-loss outlier
-    detection and Stage 2 utility/value selection.
+    The original script then performs reconstruction-loss outlier detection
+    followed by utility/value selection.
     """
 
     smartgen_root: Path
@@ -79,10 +79,10 @@ def expected_smartgen_tof_paths(code_dir: Path, dataset: str, env: str, threshol
     filter_dir = code_dir / "filter_data" / dataset / env
     return {
         "input": filter_dir / f"{base}.pkl",
-        "stage1_filter": filter_dir / f"{base}_filter.pkl",
-        "stage2_true": filter_dir / f"{base}_filter_true.pkl",
-        "stage1_train": filter_dir / f"{base}_filter_trn.pkl",
-        "stage1_validation": filter_dir / f"{base}_filter_vld.pkl",
+        "filter_output": filter_dir / f"{base}_filter.pkl",
+        "utility_selected": filter_dir / f"{base}_filter_true.pkl",
+        "filter_train": filter_dir / f"{base}_filter_trn.pkl",
+        "filter_validation": filter_dir / f"{base}_filter_vld.pkl",
         "outlier_prefix": filter_dir / f"{base}_filter_out",
         "check_model": code_dir / "check_model" / f"best_{dataset}_{model}_{method}.pth",
     }
@@ -120,8 +120,8 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
         "out_pkl": str(out_pkl),
         "num_generated_before_tof": input_count,
         "used_smartgen_original_tof": False,
-        "smartgen_original_tof_stage1": "reconstruction_loss_iqr_outlier_detection",
-        "smartgen_original_tof_stage2": "utility_value_selection",
+        "gen_original_tof_filter": "reconstruction_loss_iqr_outlier_detection",
+        "gen_original_tof_utility_selection": "utility_value_selection",
         "dry_run": bool(config.dry_run),
     }
 
@@ -132,7 +132,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
                 "status": "dry_run_copied_input",
                 "used_smartgen_original_tof": False,
                 "num_generated_after_smartgen_tof": count_pickle_items(out_pkl),
-                "note": "Dry run did not execute SmartGen security_check.py.",
+                "note": "Dry run did not execute Gen security_check.py.",
             }
         )
         write_report(out_dir, report)
@@ -151,8 +151,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
     env_vars["PYTHONPATH"] = str(code_dir) + os.pathsep + env_vars.get("PYTHONPATH", "")
 
     code = (
-        "import importlib.util, os, torch; "
-        "torch.cuda.is_available(); "
+        "import importlib.util, os; "
         f"os.chdir({str(code_dir)!r}); "
         f"spec=importlib.util.spec_from_file_location('smartgen_security_check', {str(security_check)!r}); "
         "mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); "
@@ -173,17 +172,17 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
         report.update({"status": "failed", "num_generated_after_smartgen_tof": None})
         write_report(out_dir, report)
         raise RuntimeError(
-            "SmartGen original TOF failed; see smartgen_original_tof_report.json. "
+            "Gen original TOF failed; see smartgen_original_tof_report.json. "
             f"stderr tail: {completed.stderr[-1000:]}"
         )
 
     selected_source = None
-    if paths["stage2_true"].exists():
-        selected_source = paths["stage2_true"]
-        output_stage = "stage2_true"
-    elif paths["stage1_filter"].exists():
-        selected_source = paths["stage1_filter"]
-        output_stage = "stage1_filter_no_stage2_true_file"
+    if paths["utility_selected"].exists():
+        selected_source = paths["utility_selected"]
+        output_stage = "utility_selected"
+    elif paths["filter_output"].exists():
+        selected_source = paths["filter_output"]
+        output_stage = "filter_output_no_utility_selection_file"
     else:
         selected_source = paths["input"]
         output_stage = "input_no_filter_file_found"
@@ -205,7 +204,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
 def write_report(out_dir: Path, report: dict[str, Any]) -> None:
     (out_dir / "smartgen_original_tof_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
-        "# SmartGen Original TOF Report",
+        "# Gen Original TOF Report",
         "",
         "| field | value |",
         "| --- | --- |",

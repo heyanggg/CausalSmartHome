@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build a GPT-5.5 generation package from a Stage4A directory.")
-    parser.add_argument("--stage4a-dir", required=True)
+    parser = argparse.ArgumentParser(description="Build a GPT-5.5 generation package from a causal GSS artifact directory.")
+    parser.add_argument("--causal-gss-dir", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--scenario", required=True, choices=["fr_st", "sp_st"])
     parser.add_argument("--seed", type=int, default=2024)
@@ -18,22 +18,22 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    stage4a_dir = Path(args.stage4a_dir).resolve()
+    causal_gss_dir = Path(args.causal_gss_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
-    if not stage4a_dir.exists():
-        raise FileNotFoundError(f"--stage4a-dir not found: {stage4a_dir}")
+    if not causal_gss_dir.exists():
+        raise FileNotFoundError(f"--causal-gss-dir not found: {causal_gss_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     required = [
         "prompt.txt",
         "guard_report.json",
         "guarded_reweighted_gss_hints.json",
-        "resolved_gcad_prior.json",
+        "resolved_causal_relation_prior.json",
     ]
     for name in required:
-        src = stage4a_dir / name
+        src = causal_gss_dir / name
         if not src.exists():
-            raise FileNotFoundError(f"required Stage4A artifact missing: {src}")
+            raise FileNotFoundError(f"required causal GSS artifact missing: {src}")
         shutil.copyfile(src, out_dir / name)
 
     schema = {
@@ -44,7 +44,7 @@ def main() -> None:
         "seed": args.seed,
         "sequence_format": "flat_quadruples",
         "fields": ["day", "hour_slot", "device_id", "action_id"],
-        "stage4a_dir": str(stage4a_dir),
+        "causal_gss_dir": str(causal_gss_dir),
         "guard_mode": "downweight",
         "downweight_factor": 0.25,
         "reweight_mode": "multiplicative",
@@ -61,13 +61,13 @@ def build_instruction(scenario: str) -> str:
         [
             "# GPT-5.5 Generation Instruction",
             "",
-            "Use GPT-5.5 as the SmartGen target-context behavior generator for this project.",
+            "Use GPT-5.5 as the Gen target-context behavior generator for this project.",
             "",
             "Use:",
             "1. prompt.txt",
             "2. guarded_reweighted_gss_hints.json",
             "3. guard_report.json",
-            "4. resolved_gcad_prior.json",
+            "4. resolved_causal_relation_prior.json",
             "",
             "Generate target-context normal smart-home behavior sequences.",
             "",
@@ -75,13 +75,13 @@ def build_instruction(scenario: str) -> str:
             "Each sequence must be a flat quadruple list:",
             "[day, hour_slot, device_id, action_id, day, hour_slot, device_id, action_id, ...]",
             "",
-            "Keep the same sequence length convention as existing Stage3 generated pkl.",
-            "If old Stage3 uses 10 events per sequence, output 40 integers per sequence.",
+            "Keep the same sequence length convention as the generated pkl files in this project.",
+            "If the reference files use 10 events per sequence, output 40 integers per sequence.",
             "",
             "Follow these rules:",
             "1. Use guarded causal-reweighted GSS hints as primary structure.",
-            "2. Use raw GCAD hints only as weak background.",
-            "3. If raw GCAD conflicts with guarded hints, follow guarded hints.",
+            "2. Use raw causal relation hints only as weak background.",
+            "3. If raw causal relation conflicts with guarded hints, follow guarded hints.",
             "4. Do not over-generate devices listed as overused in guard_report.",
             f"5. {scenario_note}",
             "6. Keep target-context device/action distribution plausible.",
@@ -90,7 +90,7 @@ def build_instruction(scenario: str) -> str:
             "9. Generate normal behavior sequences, not attacks.",
             "10. Save metadata with generator = gpt55_generation and api_llm = false.",
             "",
-            "This package is not a SmartGen paper API LLM reproduction. It is the fixed GPT-5.5 generation protocol for CausalSmartHome mainline experiments.",
+            "This package is the fixed GPT-5.5 generation protocol for CausalSmartHome main experiments.",
             "",
         ]
     )

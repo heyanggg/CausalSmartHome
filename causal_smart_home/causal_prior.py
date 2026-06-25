@@ -91,16 +91,16 @@ else:  # pragma: no cover
 
 
 class GradientCausalMiner:
-    """A compact GCAD-style gradient causal miner.
+    """A compact causal-relation-style gradient causal miner.
 
-    It follows the GCAD glue principle: train a predictor on normal multivariate
+    It follows the causal relation causal relation principle: train a predictor on normal multivariate
     behavior tensors, compute channel-separated prediction losses, backpropagate
     each output-channel loss to input windows, integrate absolute gradients over
-    the lag dimension, and apply GCAD's symmetry-based sparsification.
+    the lag dimension, and apply causal relation symmetry-based sparsification.
 
-    The original GCAD repository can still be used through :mod:`gcad_adapter`.
-    This local implementation is intentionally small so the glue pipeline can be
-    tested without modifying or depending on GCAD internals.
+    The original causal relation repository can still be used through :mod:`causal_relation_adapter`.
+    This local implementation is intentionally small so the main pipeline can be
+    tested without modifying or depending on causal relation internals.
     """
 
     def __init__(
@@ -115,7 +115,7 @@ class GradientCausalMiner:
         device: str | None = None,
     ) -> None:
         if torch is None:
-            raise RuntimeError("torch is required for GradientCausalMiner; install project dependencies or run inside smartguard_env")
+            raise RuntimeError("torch is required for GradientCausalMiner; install project dependencies or run inside python environment")
         self.lag = lag
         self.epochs = epochs
         self.hidden = hidden
@@ -124,10 +124,10 @@ class GradientCausalMiner:
         self.batch_size = batch_size
         self.seed = seed
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        # The tiny event-tensor miner is used in unit tests and small glue runs.
+        # The tiny event-tensor miner is used in unit tests and small main runs.
         # On high-core CI/servers PyTorch's default CPU thread count can dominate
         # the runtime for these small MLPs, so cap it modestly without affecting
-        # CUDA runs or the external GCAD project.
+        # CUDA runs or the external causal relation project.
         if self.device == "cpu":
             try:
                 torch.set_num_threads(min(4, max(1, torch.get_num_threads())))
@@ -203,7 +203,7 @@ class GradientCausalMiner:
 
     @staticmethod
     def sparsify(matrix: np.ndarray, threshold: float = 0.0) -> np.ndarray:
-        # GCAD-inspired symmetry subtraction: keep asymmetric direction strength.
+        # causal-relation-inspired symmetry subtraction: keep asymmetric direction strength.
         diff = matrix - matrix.T
         out = np.maximum(diff, 0.0)
         diag = np.diag(matrix).copy()

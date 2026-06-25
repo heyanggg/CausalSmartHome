@@ -43,17 +43,6 @@ pip-wheel-metadata/
 .DS_Store
 Thumbs.db
 
-# ---- External upstream projects ----
-# These are local symlinks to the full SmartGuard / SmartGen / GCAD repos.
-# Do not commit the symlinks themselves or the old tar snapshot.
-external_sources/*
-!external_sources/.gitkeep
-!external_sources/README.md
-external_sources_snapshot_from_tar/
-
-# Old failed/abandoned stitched project, not part of current glue-layer repo.
-CausalGenGuard/
-
 # ---- Raw datasets / generated datasets ----
 data/
 dataset/

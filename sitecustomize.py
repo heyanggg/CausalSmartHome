@@ -1,6 +1,6 @@
 """Compatibility shim for loading NumPy-2.x pickles in NumPy-1.x envs.
 
-Some SmartGen/SmartGuard pkl files were saved with module paths like
+Some Gen pkl files were saved with module paths like
 numpy._core.*, while older NumPy exposes them as numpy.core.*.
 Python imports sitecustomize automatically when PYTHONPATH=. is used.
 """

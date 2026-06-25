@@ -24,32 +24,25 @@ from causal_smart_home.smartgen_experiment import (
 )
 
 
-VARIANTS = {
-    "stage3_prompt_only_smartgen_tof",
-    "stage4_raw_no_smartgen_tof",
-    "stage4_smartgen_original_tof",
-    "stage4_smartgen_original_tof_plus_causal_tof",
-}
+GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
 
-# Backward-compatible aliases are accepted but normalized immediately.
-VARIANT_ALIASES = {
-    "stage3_prompt_only_baseline": "stage3_prompt_only_smartgen_tof",
-    "stage4_downweight_multiplicative_raw": "stage4_raw_no_smartgen_tof",
-    "stage4_downweight_multiplicative_causal_tof_resampled": "stage4_smartgen_original_tof_plus_causal_tof",
+VARIANTS = {
+    "ablation_no_causal_tof",
+    "proposed_causal_gss_gpt55_causal_tof",
 }
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Stage4C using SmartGen built-in anomaly_detection_pipeline semantics.")
+    parser = argparse.ArgumentParser(description="Run Gen built-in downstream AD for the current main experiment.")
     parser.add_argument("--dataset", required=True, choices=["fr", "sp", "us"])
     parser.add_argument("--scenario", required=True, choices=["st", "tt", "nt"], help="CausalSmartHome scenario suffix; st=spring, tt=night, nt=multiple.")
-    parser.add_argument("--variant", required=True, choices=sorted(VARIANTS | set(VARIANT_ALIASES)))
+    parser.add_argument("--variant", required=True, choices=sorted(VARIANTS))
     parser.add_argument("--generated-pkl", required=True, type=Path, help="Input pkl for this AD variant.")
     parser.add_argument("--raw-generated-pkl", type=Path, help="Fresh pre-TOF pkl used only for provenance/counts.")
     parser.add_argument("--smartgen-tof-pkl", type=Path, help="SmartGen original TOF output pkl used only for provenance/counts when current input is Causal-TOF output.")
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--out-dir", required=True, type=Path)
-    parser.add_argument("--smartgen-root", type=Path, default=Path("/home/heyang/projects/SmartGen"))
+    parser.add_argument("--gen-root", type=Path, default=GEN_ROOT)
     parser.add_argument("--causal-smart-home-root", type=Path, default=REPO_ROOT)
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--split-ratio", type=float, default=0.8)
@@ -121,7 +114,7 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 
 
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
-    variant = canonical_variant(args.variant)
+    variant = args.variant
     current_len = _pickle_len(args.generated_pkl)
     raw_len = _pickle_len(args.raw_generated_pkl)
     smartgen_tof_len = _pickle_len(args.smartgen_tof_pkl)
@@ -130,19 +123,13 @@ def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
     before = raw_len
     after_smartgen = smartgen_tof_len
     after_causal = None
-    if variant == "stage4_raw_no_smartgen_tof":
-        before = before if before is not None else current_len
-        after_smartgen = None
-    elif variant == "stage4_smartgen_original_tof":
+    if variant == "ablation_no_causal_tof":
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_smartgen = current_len
-    elif variant == "stage4_smartgen_original_tof_plus_causal_tof":
+    elif variant == "proposed_causal_gss_gpt55_causal_tof":
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_smartgen = after_smartgen if after_smartgen is not None else tof_report.get("num_generated_after_smartgen_tof")
         after_causal = current_len
-    elif variant == "stage3_prompt_only_smartgen_tof":
-        before = before if before is not None else tof_report.get("num_generated_before_tof")
-        after_smartgen = current_len
 
     return {
         "input_pkl": str(args.generated_pkl.resolve()),
@@ -160,14 +147,7 @@ def f1(payload: dict[str, Any]) -> float | None:
     return float(value) if value is not None else None
 
 
-def canonical_variant(variant: str) -> str:
-    return VARIANT_ALIASES.get(variant, variant)
-
-
 def generator_for_variant(variant: str) -> str:
-    variant = canonical_variant(variant)
-    if variant == "stage3_prompt_only_smartgen_tof":
-        return "stage3_prompt_only"
     return "gpt55_generation"
 
 
@@ -192,7 +172,6 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
                     "api_llm",
                     "manual_generation",
                     "gpt55_generation_assisted",
-                    "surrogate_algorithm",
                 )
                 if key in payload
             }
@@ -200,31 +179,23 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
 
 
 def input_stage_for_variant(variant: str) -> str:
-    variant = canonical_variant(variant)
-    if variant == "stage4_raw_no_smartgen_tof":
-        return "fresh_generated_no_smartgen_tof"
-    if variant in {"stage3_prompt_only_smartgen_tof", "stage4_smartgen_original_tof"}:
-        return "smartgen_original_tof"
-    if variant == "stage4_smartgen_original_tof_plus_causal_tof":
-        return "smartgen_original_tof_plus_causal_tof"
+    if variant == "ablation_no_causal_tof":
+        return "gen_original_tof"
+    if variant == "proposed_causal_gss_gpt55_causal_tof":
+        return "gen_original_tof_plus_causal_tof"
     return variant
 
 
 def used_smartgen_original_tof_for_variant(variant: str) -> bool:
-    variant = canonical_variant(variant)
-    return variant in {
-        "stage3_prompt_only_smartgen_tof",
-        "stage4_smartgen_original_tof",
-        "stage4_smartgen_original_tof_plus_causal_tof",
-    }
+    return variant in VARIANTS
 
 
 def used_causal_tof_for_variant(variant: str) -> bool:
-    return canonical_variant(variant) == "stage4_smartgen_original_tof_plus_causal_tof"
+    return variant == "proposed_causal_gss_gpt55_causal_tof"
 
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    variant = canonical_variant(args.variant)
+    variant = args.variant
     provenance = read_generation_provenance(args.raw_generated_pkl or args.generated_pkl)
     threshold_percentage = (
         args.threshold_percentage
@@ -241,11 +212,10 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "smartgen_env": smartgen_env(args.scenario),
         "downstream_pipeline": "smartgen_builtin_anomaly_detection_pipeline",
         "generator": provenance.get("generator", generator_for_variant(variant)),
-        "generation_model": provenance.get("generation_model", "GPT-5.5" if variant != "stage3_prompt_only_smartgen_tof" else None),
+        "generation_model": provenance.get("generation_model", "GPT-5.5"),
         "api_llm": provenance.get("api_llm", False),
-        "manual_generation": provenance.get("manual_generation", variant != "stage3_prompt_only_smartgen_tof"),
+        "manual_generation": provenance.get("manual_generation", True),
         "gpt55_generation_assisted": provenance.get("gpt55_generation_assisted"),
-        "surrogate_algorithm": provenance.get("surrogate_algorithm"),
         "precision": payload.get("precision"),
         "recall": payload.get("recall"),
         "f1": f1(payload),
@@ -352,10 +322,10 @@ def write_markdown(path: Path, metrics: dict[str, Any]) -> None:
 
 def required_paths(args: argparse.Namespace) -> dict[str, Path]:
     env = smartgen_env(args.scenario)
-    defaults = default_smartgen_paths(args.smartgen_root, args.dataset, env)
+    defaults = default_smartgen_paths(args.gen_root, args.dataset, env)
     paths = {
         "generated_pkl": args.generated_pkl,
-        "smartgen_root": args.smartgen_root,
+        "gen_root": args.gen_root,
         "causal_smart_home_root": args.causal_smart_home_root,
         "attack_pkl": args.attack_pkl or defaults["attack_pkl"],
         "target_test_pkl": args.target_test_pkl or defaults["target_test_pkl"],
@@ -383,7 +353,6 @@ def write_failure(out_dir: Path, args: argparse.Namespace, reason: str, missing:
 
 def main() -> None:
     args = parse_args()
-    args.variant = canonical_variant(args.variant)
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "run_command.sh").write_text("#!/usr/bin/env bash\n" + command_text() + "\n", encoding="utf-8")
@@ -402,18 +371,16 @@ def main() -> None:
 
     config_payload = {
         "downstream_pipeline": "smartgen_builtin_anomaly_detection_pipeline",
-        "smartgen_entrypoint": str((args.smartgen_root / "anomaly_detection_pipeline" / "main.py").resolve()),
-        "uses_smartguard": False,
+        "gen_entrypoint": str((args.gen_root / "anomaly_detection_pipeline" / "models1.py").resolve()),
         "generator": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("generator", generator_for_variant(args.variant)),
         "generation_model": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get(
-            "generation_model", "GPT-5.5" if args.variant != "stage3_prompt_only_smartgen_tof" else None
+            "generation_model", "GPT-5.5"
         ),
         "api_llm": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("api_llm", False),
         "manual_generation": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get(
-            "manual_generation", args.variant != "stage3_prompt_only_smartgen_tof"
+            "manual_generation", True
         ),
         "gpt55_generation_assisted": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("gpt55_generation_assisted"),
-        "surrogate_algorithm": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("surrogate_algorithm"),
         "input_stage": input_stage_for_variant(args.variant),
         "used_smartgen_original_tof": used_smartgen_original_tof_for_variant(args.variant),
         "used_causal_tof": used_causal_tof_for_variant(args.variant),
@@ -430,7 +397,7 @@ def main() -> None:
 
     try:
         config = SmartGenAnomalyRunConfig(
-            smartgen_root=args.smartgen_root.resolve(),
+            smartgen_root=args.gen_root.resolve(),
             dataset=args.dataset,
             env=smartgen_env(args.scenario),
             synthetic_pkl=args.generated_pkl.resolve(),

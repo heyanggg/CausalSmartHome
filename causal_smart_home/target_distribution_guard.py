@@ -27,11 +27,11 @@ class TargetDistributionGuardConfig:
 
 
 def compute_device_distribution(sequences) -> dict[str, float]:
-    """Compute device-frequency distribution from SmartGen/SmartGuard sequences.
+    """Compute device-frequency distribution from Gen sequences.
 
     Input may be BehaviorSequence objects, flattened numeric lists, numpy rows, or
     tuple-wrapped rows from labeled datasets.  Output keys are canonical ``d:<id>``
-    strings so they align with device-level GCAD channels.
+    strings so they align with device-level causal relation channels.
     """
 
     behavior_sequences = _coerce_sequences(sequences)
@@ -55,7 +55,7 @@ def apply_target_distribution_guard(
     """Suppress or downweight causal edges whose endpoints are overused.
 
     The guard is not a new causal discovery method.  It protects a source-context
-    GCAD prior before moving it into target-context SmartGen guidance.
+    causal relation prior before moving it into target-context SmartGen guidance.
     """
 
     observed = _normalize_distribution(generated_or_prompt_distribution)

@@ -27,7 +27,7 @@ def test_smartgen_original_tof_wrapper_calls_mock_security_check(tmp_path):
                 base = f"{dataset}_{new_env}_generation_{method}_th={thres}_{model}_seq"
                 root = Path("filter_data") / dataset / new_env
                 data = pickle.load(open(root / f"{base}.pkl", "rb"))
-                # Mimic original two-stage TOF final output: retain all but last.
+                # Mimic original two-pass TOF final output: retain all but last.
                 with open(root / f"{base}_filter_true.pkl", "wb") as f:
                     pickle.dump(data[:-1], f)
             """
@@ -56,5 +56,5 @@ def test_smartgen_original_tof_wrapper_calls_mock_security_check(tmp_path):
     assert report["num_generated_after_smartgen_tof"] == 3
     assert pickle.load(open(tmp_path / "out" / "smartgen_tof.pkl", "rb")) == [[0, 0, 0, 0], [1, 1, 1, 1], [2, 2, 2, 2]]
     saved = json.loads((tmp_path / "out" / "smartgen_original_tof_report.json").read_text())
-    assert saved["smartgen_original_tof_stage1"] == "reconstruction_loss_iqr_outlier_detection"
-    assert saved["smartgen_original_tof_stage2"] == "utility_value_selection"
+    assert saved["gen_original_tof_filter"] == "reconstruction_loss_iqr_outlier_detection"
+    assert saved["gen_original_tof_utility_selection"] == "utility_value_selection"

@@ -71,7 +71,7 @@ def test_validate_and_pack_gpt55_generation_valid(tmp_path, monkeypatch):
     assert report["generation_model"] == "GPT-5.5"
     assert report["api_llm"] is False
     assert report["manual_generation"] is True
-    assert report["surrogate_algorithm"] is False
+    assert report["gpt55_generation_assisted"] is True
 
 
 def test_validate_and_pack_gpt55_generation_rejects_mismatch(tmp_path, monkeypatch):
