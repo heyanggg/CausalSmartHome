@@ -22,3 +22,6 @@ csh = "causal_smart_home.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["causal_smart_home*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,9 +1,10 @@
 import json
-import pickle
 
+from causal_smart_home.experiment_matrix import ABLATION_VARIANT, PROPOSED_VARIANT, REFERENCE_VARIANT
 from scripts.summarize_main_experiment import (
-    build_aggregate_rows,
-    build_seed_delta_rows,
+    build_ablation_rows,
+    build_main_per_seed_rows,
+    build_main_vs_gen_rows,
     collect_per_seed_rows,
 )
 
@@ -16,21 +17,6 @@ def _write_metrics(root, variant, seed, f1, precision=0.5):
         "scenario": "st",
         "seed": seed,
         "variant": variant,
-        "input_pkl": str(run / "input.pkl"),
-        "input_stage": "gen_original_tof_plus_causal_tof" if variant == "proposed_causal_gss_gpt55_causal_tof" else "gen_original_tof",
-        "used_gen_original_tof": True,
-        "used_causal_tof": variant == "proposed_causal_gss_gpt55_causal_tof",
-        "downstream_pipeline": "gen_builtin_downstream_ad",
-        "generator": "gpt55_generation",
-        "api_llm": False,
-        "num_generated_before_tof": 10,
-        "num_generated_after_gen_tof": 8,
-        "num_generated_after_causal_tof": 7 if variant == "proposed_causal_gss_gpt55_causal_tof" else None,
-        "train_size": 6,
-        "validation_size": 2,
-        "test_size": 5,
-        "threshold": 0.1,
-        "threshold_source": "validation_percentile_95.0",
         "precision": precision,
         "recall": 1.0,
         "f1": f1,
@@ -44,29 +30,67 @@ def _write_metrics(root, variant, seed, f1, precision=0.5):
     (run / "normalized_metrics.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_main_summary_collects_per_seed_aggregate_and_deltas(tmp_path):
-    _write_metrics(tmp_path, "ablation_no_causal_tof", 2024, 0.75)
-    _write_metrics(tmp_path, "proposed_causal_gss_gpt55_causal_tof", 2024, 0.80)
-
-    rows = collect_per_seed_rows(tmp_path)
-    assert len(rows) == 2
-    assert {row["variant"] for row in rows} == {
-        "ablation_no_causal_tof",
-        "proposed_causal_gss_gpt55_causal_tof",
+def _reference():
+    ref = {
+        ("sp", "st"): {
+            "dataset": "sp",
+            "scenario": "st",
+            "precision": 0.8573,
+            "recall": 0.9904,
+            "f1": 0.9191,
+            "source": "SmartGen paper Table 3, SmartGen column",
+        }
     }
-    aggregate = build_aggregate_rows(rows)
-    assert all(row["table_type"] == "aggregate_mean_std_not_replacement_for_per_seed" for row in aggregate)
+    for dataset in ("fr", "us"):
+        for scenario in ("st", "tt", "nt"):
+            ref[(dataset, scenario)] = {
+                "dataset": dataset,
+                "scenario": scenario,
+                "precision": 0.1,
+                "recall": 0.1,
+                "f1": 0.1,
+                "source": "SmartGen paper Table 3, SmartGen column",
+            }
+    for scenario in ("tt", "nt"):
+        ref[("sp", scenario)] = {
+            "dataset": "sp",
+            "scenario": scenario,
+            "precision": 0.1,
+            "recall": 0.1,
+            "f1": 0.1,
+            "source": "SmartGen paper Table 3, SmartGen column",
+        }
+    return ref
 
-    deltas, meta = build_seed_delta_rows(rows)
-    assert meta["variants_present"] == ["ablation_no_causal_tof", "proposed_causal_gss_gpt55_causal_tof"]
-    proposed_vs_ablation = next(row for row in deltas if row["comparison"] == "proposed_causal_gss_gpt55_causal_tof vs ablation_no_causal_tof")
-    assert round(proposed_vs_ablation["f1_delta"], 6) == 0.05
 
+def test_main_summary_uses_reference_not_ablation_as_baseline(tmp_path):
+    _write_metrics(tmp_path, ABLATION_VARIANT, 2024, 0.75)
+    _write_metrics(tmp_path, PROPOSED_VARIANT, 2024, 0.80)
 
-def test_main_summary_ignores_removed_variants(tmp_path):
-    _write_metrics(tmp_path, "removed_legacy_variant", 2024, 0.60)
-    _write_metrics(tmp_path, "ablation_no_causal_tof", 2024, 0.75)
     rows = collect_per_seed_rows(tmp_path)
-    deltas, meta = build_seed_delta_rows(rows)
-    assert meta["variants_present"] == ["ablation_no_causal_tof"]
-    assert len(deltas) == 0
+    main_rows = build_main_per_seed_rows(rows, _reference())
+    main_vs_gen = build_main_vs_gen_rows(rows, _reference())
+
+    sp_st_2024_variants = {
+        row["variant"]
+        for row in main_rows
+        if row["dataset"] == "sp" and row["scenario"] == "st" and row["seed"] == 2024
+    }
+    assert sp_st_2024_variants == {REFERENCE_VARIANT, PROPOSED_VARIANT}
+    assert ABLATION_VARIANT not in sp_st_2024_variants
+
+    sp_st_delta = next(row for row in main_vs_gen if row["dataset"] == "sp" and row["scenario"] == "st" and row["seed"] == 2024)
+    assert round(sp_st_delta["delta_f1"], 6) == round(0.80 - 0.9191, 6)
+
+
+def test_ablation_summary_contains_ablation_only_as_ablation(tmp_path):
+    _write_metrics(tmp_path, ABLATION_VARIANT, 2024, 0.75)
+    _write_metrics(tmp_path, PROPOSED_VARIANT, 2024, 0.80)
+
+    rows = collect_per_seed_rows(tmp_path)
+    ablation_rows = build_ablation_rows(rows)
+    sp_st = next(row for row in ablation_rows if row["dataset"] == "sp" and row["scenario"] == "st" and row["seed"] == 2024)
+
+    assert sp_st["ablation_f1"] == 0.75
+    assert sp_st["proposed_f1"] == 0.80
+    assert round(sp_st["delta_f1"], 6) == 0.05

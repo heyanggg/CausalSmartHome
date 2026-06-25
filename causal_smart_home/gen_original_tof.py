@@ -11,10 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .experiment_matrix import target_env_for_scenario
 from .gen_downstream_ad import DEFAULT_THRESHOLDS, load_pickle
-
-
-ENV_BY_SCENARIO = {"st": "spring"}
 
 
 @dataclass(frozen=True)
@@ -45,10 +43,7 @@ class GenOriginalTOFConfig:
 
 
 def gen_env_for_scenario(scenario: str) -> str:
-    try:
-        return ENV_BY_SCENARIO[scenario]
-    except KeyError as exc:
-        raise ValueError("scenario must be st for the bundled main experiment") from exc
+    return target_env_for_scenario(scenario)
 
 
 def gen_code_dir(gen_root: str | Path) -> Path:
@@ -101,7 +96,12 @@ def count_pickle_items(path: str | Path) -> int | None:
 
 def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
     env = gen_env_for_scenario(config.scenario)
-    threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, env)]
+    threshold = config.threshold or DEFAULT_THRESHOLDS.get((config.dataset, env))
+    if threshold is None:
+        raise ValueError(
+            "Gen original TOF threshold is not configured for "
+            f"{config.dataset}-{config.scenario} ({env}); pass --threshold for a real run."
+        )
     out_dir = config.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_pkl = config.out_pkl.resolve()

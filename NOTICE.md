@@ -1,1 +1,1 @@
-This package vendors the Gen code and SP-ST data needed to reproduce the current CausalSmartHome main experiment. Large model/data artifacts should be reviewed before public release.
+This package vendors the Gen code and SP-ST data needed to reproduce the current historical SP-ST subset. The complete CausalSmartHome main experiment is FR/SP/US x ST/TT/NT against the SmartGen Table 3 reference baseline. Large model/data artifacts should be reviewed before public release.

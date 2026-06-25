@@ -22,6 +22,7 @@ from causal_smart_home.gen_downstream_ad import (
     load_pickle,
     run_gen_downstream_ad_experiment,
 )
+from causal_smart_home.experiment_matrix import DATASETS, SCENARIOS, target_env_for_scenario
 
 
 GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
@@ -33,9 +34,9 @@ VARIANTS = {
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Gen built-in downstream AD for the current main experiment.")
-    parser.add_argument("--dataset", required=True, choices=["sp"])
-    parser.add_argument("--scenario", required=True, choices=["st"], help="Current bundled main experiment scenario.")
+    parser = argparse.ArgumentParser(description="Run Gen built-in downstream AD for a CausalSmartHome matrix cell.")
+    parser.add_argument("--dataset", required=True, choices=DATASETS)
+    parser.add_argument("--scenario", required=True, choices=sorted(SCENARIOS))
     parser.add_argument("--variant", required=True, choices=sorted(VARIANTS))
     parser.add_argument("--generated-pkl", required=True, type=Path, help="Input pkl for this AD variant.")
     parser.add_argument("--pre-tof-pkl", type=Path, help="Pre-TOF generated pkl used only for provenance/counts.")
@@ -199,8 +200,13 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
     threshold_percentage = (
         args.threshold_percentage
         if args.threshold_percentage is not None
-        else DEFAULT_THRESHOLD_PERCENTAGES[(args.dataset, gen_env(args.scenario))]
+        else DEFAULT_THRESHOLD_PERCENTAGES.get((args.dataset, gen_env(args.scenario)))
     )
+    if threshold_percentage is None:
+        raise ValueError(
+            "No default threshold percentage is configured for "
+            f"{args.dataset}-{args.scenario}; pass --threshold-percentage."
+        )
     metrics_path = payload.get("result_path")
     normalized = {
         "status": "dry_run" if payload.get("dry_run") else "success",
@@ -249,11 +255,7 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
 
 
 def gen_env(scenario: str) -> str:
-    mapping = {"st": "spring"}
-    try:
-        return mapping[scenario]
-    except KeyError as exc:
-        raise ValueError("scenario must be st for the bundled main experiment") from exc
+    return target_env_for_scenario(scenario)
 
 
 def command_text() -> str:

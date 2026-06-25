@@ -21,12 +21,16 @@ from causal_smart_home.target_distribution_guard import (
 )
 from causal_smart_home.causal_tof import load_pickle_sequences
 from causal_smart_home.causal_gss import load_id_name_mapping, device_key_to_name
+from causal_smart_home.experiment_matrix import DATASETS, SCENARIOS
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build causal-relation-guided GSS prompt artifacts.")
     parser.add_argument("--source-pkl", required=True, help="Source-context normal Gen flattened pkl.")
     parser.add_argument("--target-pkl", required=True, help="Target-context normal pkl for distribution guard.")
+    parser.add_argument("--dataset", choices=DATASETS, help="Canonical experiment dataset label for provenance.")
+    parser.add_argument("--scenario", choices=sorted(SCENARIOS), help="Canonical experiment scenario label for provenance.")
+    parser.add_argument("--matrix", default="single", choices=["single", "all"], help="Use scripts/run_main_experiment_matrix.py for --matrix all.")
     parser.add_argument("--prior-json", help="Existing causal_prior.json or resolved_causal_relation_prior.json. If absent, source-pkl is passed to existing adapter.")
     parser.add_argument("--prior-matrix-path", help="Existing causal matrix .json/.npy/.csv.")
     parser.add_argument("--adapter-mode", default="existing", choices=["existing", "compact_fallback"])
@@ -139,6 +143,8 @@ def main(argv: list[str] | None = None) -> None:
     config = {
         "script": Path(__file__).name,
         "args": vars(args),
+        "dataset": args.dataset,
+        "scenario": args.scenario,
         "source_pkl": str(source_pkl),
         "target_pkl": str(target_pkl),
         "outputs": {

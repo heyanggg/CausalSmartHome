@@ -12,8 +12,10 @@ import pickle
 import random
 import sys
 
+from .experiment_matrix import VOCAB_SIZES
 
-VOCAB_DIC = {"sp": 235}
+
+VOCAB_DIC = dict(VOCAB_SIZES)
 
 DEFAULT_THRESHOLDS = {
     ("sp", "spring"): "0.915",
@@ -48,12 +50,10 @@ class GenDownstreamADRunConfig:
 
 
 def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
-    if dataset != "sp":
-        raise ValueError("dataset must be sp for the bundled main experiment")
-    if env != "spring":
-        raise ValueError("env must be spring for the bundled main experiment")
+    if dataset not in VOCAB_DIC:
+        raise ValueError(f"dataset must be one of {sorted(VOCAB_DIC)}")
     pipeline = Path(gen_root).resolve() / "anomaly_detection_pipeline"
-    attack_name = "labeled_sp_spring_attack_heater.pkl"
+    attack_name = f"labeled_{dataset}_{env}_attack_heater.pkl"
     return {
         "pipeline_root": pipeline,
         "attack_pkl": pipeline / "attack" / dataset / attack_name,
@@ -151,9 +151,13 @@ def _pad_sequences(vocab_size: int, sequences: Sequence[Sequence[int]], length: 
 
 
 def _dataset_for_env(models_module, env: str):
-    if env == "spring":
+    if env in {"spring", "winter"}:
         return models_module.TimeSeriesDataset2
-    raise ValueError("env must be spring for the bundled main experiment")
+    if env in {"nighttime", "night", "daytime", "day"}:
+        return models_module.TimeSeriesDataset3
+    if env in {"multiple", "multi", "single"}:
+        return models_module.TimeSeriesDataset4
+    raise ValueError(f"unsupported Gen env for downstream AD: {env}")
 
 
 def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path, batch_size: int):
@@ -383,12 +387,22 @@ def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[s
 
     gen_root = config.gen_root.resolve()
     defaults = default_gen_paths(gen_root, config.dataset, config.env)
-    threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, config.env)]
+    threshold = config.threshold or DEFAULT_THRESHOLDS.get((config.dataset, config.env))
+    if threshold is None:
+        raise ValueError(
+            "Gen downstream AD threshold is not configured for "
+            f"{config.dataset}-{config.env}; pass threshold in the run config for a real run."
+        )
     threshold_percentage = (
         config.threshold_percentage
         if config.threshold_percentage is not None
-        else DEFAULT_THRESHOLD_PERCENTAGES[(config.dataset, config.env)]
+        else DEFAULT_THRESHOLD_PERCENTAGES.get((config.dataset, config.env))
     )
+    if threshold_percentage is None:
+        raise ValueError(
+            "Gen downstream AD threshold percentage is not configured for "
+            f"{config.dataset}-{config.env}; pass --threshold-percentage for a real run."
+        )
     out_dir = config.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
