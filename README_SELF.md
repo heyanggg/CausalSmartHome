@@ -83,8 +83,8 @@ CausalSmartHome 的完整主实验。
 
 原 Gen 项目中当前主实验需要的代码和数据已经放入项目内：
 
-- `causal_smart_home/gen_core/SmartGen/security_check.py`
-- `causal_smart_home/gen_core/SmartGen/check_model/`
+- `causal_smart_home/gen_core/gen_original_tof/security_check.py`
+- `causal_smart_home/gen_core/gen_original_tof/check_model/`
 - `causal_smart_home/gen_core/anomaly_detection_pipeline/models1.py`
 - `causal_smart_home/gen_core/anomaly_detection_pipeline/check_model/`
 - `causal_smart_home/gen_core/anomaly_detection_pipeline/attack/`

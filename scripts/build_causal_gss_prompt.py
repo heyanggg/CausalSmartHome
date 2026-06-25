@@ -29,7 +29,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-pkl", required=True, help="Target-context normal pkl for distribution guard.")
     parser.add_argument("--prior-json", help="Existing causal_prior.json or resolved_causal_relation_prior.json. If absent, source-pkl is passed to existing adapter.")
     parser.add_argument("--prior-matrix-path", help="Existing causal matrix .json/.npy/.csv.")
-    parser.add_argument("--causal-relation-project-dir", help=argparse.SUPPRESS)
     parser.add_argument("--adapter-mode", default="existing", choices=["existing", "compact_fallback"])
     parser.add_argument("--level", default="device", choices=["device", "action", "device_action"])
     parser.add_argument("--lag", type=int, default=4)
@@ -87,7 +86,6 @@ def main(argv: list[str] | None = None) -> None:
         prior_matrix_path=args.prior_matrix_path,
         source_pkl=str(source_pkl) if not args.prior_json and not args.prior_matrix_path else None,
         out_dir=str(out_prompt.parent),
-        causal_relation_project_dir=args.causal_relation_project_dir,
         adapter_mode=args.adapter_mode,
         level=args.level,
         lag=args.lag,
@@ -201,7 +199,7 @@ def build_prompt_text(prior: ResolvedCausalRelationPrior, transition_graph: dict
     raw_edges = prior.top_causal_edges[: args.top_k]
     guarded_edges = reweighted.get("edges", [])[: args.top_k]
     payload = {
-        "original_smartgen_gss_transition_hints": transition_edges,
+        "original_gen_gss_transition_hints": transition_edges,
         "raw_causal_relation_hints": raw_edges,
         "target_distribution_guard_report_summary": {
             "overused_devices": guard_report.get("overused_devices", []),
@@ -217,8 +215,8 @@ def build_prompt_text(prior: ResolvedCausalRelationPrior, transition_graph: dict
             "",
             "Important guidance precedence:",
             "Use the guarded causal-reweighted GSS hints as the primary structural guidance.",
-            "Use raw causal relation causal hints only as weak background evidence.",
-            "If raw causal relation causal hints conflict with guarded reweighted hints, follow the guarded reweighted hints.",
+            "Use raw causal-relation hints only as weak background evidence.",
+            "If raw causal-relation hints conflict with guarded reweighted hints, follow the guarded reweighted hints.",
             "Do not over-generate devices marked as overused in the target-distribution guard report.",
             "Do not treat causal relation edges as physical ground-truth causality; they are source-context predictive causal signals.",
             "Keep all generated behaviors in the legal Gen flattened format.",

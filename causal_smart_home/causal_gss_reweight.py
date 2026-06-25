@@ -10,7 +10,7 @@ def build_device_transition_graph(
     sequences,
     device_name_map: dict | None = None,
 ) -> dict:
-    """Build SmartGen-style device transition graph from flattened sequences."""
+    """Build Gen-style device transition graph from flattened sequences."""
 
     behavior_sequences = _coerce_sequences(sequences)
     counts: Counter[tuple[str, str]] = Counter()
@@ -54,7 +54,7 @@ def reweight_gss_edges(
     add_causal_edges: bool = False,
     top_k: int = 50,
 ) -> dict:
-    """Let guarded causal relation edges participate in SmartGen GSS edge scoring."""
+    """Let guarded causal relation edges participate in Gen GSS edge scoring."""
 
     if mode not in {"multiplicative", "additive"}:
         raise ValueError("mode must be multiplicative or additive")

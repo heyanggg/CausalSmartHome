@@ -93,7 +93,7 @@ else:  # pragma: no cover
 class GradientCausalMiner:
     """A compact causal-relation-style gradient causal miner.
 
-    It follows the causal relation causal relation principle: train a predictor on normal multivariate
+    It follows the causal-relation principle: train a predictor on normal multivariate
     behavior tensors, compute channel-separated prediction losses, backpropagate
     each output-channel loss to input windows, integrate absolute gradients over
     the lag dimension, and apply causal relation symmetry-based sparsification.

@@ -264,7 +264,7 @@ def _canonical_device(value: Any) -> str:
 
 
 def _install_numpy_pickle_compat() -> None:
-    # Some SmartGen pickles were produced with newer NumPy module paths
+    # Some Gen pickles were produced with newer NumPy module paths
     # (numpy._core.*). Older experiment envs still expose numpy.core.*.
     if "numpy._core" not in sys.modules:
         try:

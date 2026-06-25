@@ -165,8 +165,8 @@ for SEED in 2024 2025 2026; do
     --dataset "$DATASET" \
     --scenario "$SCENARIO" \
     --variant ablation_no_causal_tof \
-    --generated-pkl "$TOF_DIR/smartgen_tof.pkl" \
-    --raw-generated-pkl "$GEN_PKL" \
+    --generated-pkl "$TOF_DIR/gen_tof.pkl" \
+    --pre-tof-pkl "$GEN_PKL" \
     --seed "$SEED" \
     --out-dir "$AD_ROOT/ablation_no_causal_tof" \
     --gen-root "$GEN_ROOT" \
@@ -175,12 +175,12 @@ for SEED in 2024 2025 2026; do
     --cuda-visible-devices 0
 
   PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" scripts/run_causal_tof.py \
-    --generated-pkl "$TOF_DIR/smartgen_tof.pkl" \
+    --generated-pkl "$TOF_DIR/gen_tof.pkl" \
     --guarded-hints-json "$HINTS_JSON" \
     --target-pkl "$TARGET_PKL" \
     --out-scores "$CAUSAL_DIR/causal_tof_scores.json" \
     --out-weights "$CAUSAL_DIR/generated.weights.json" \
-    --out-weighted-resampled-pkl "$CAUSAL_DIR/generated_smartgen_tof_causal_tof.pkl" \
+    --out-weighted-resampled-pkl "$CAUSAL_DIR/generated_gen_tof_causal_tof.pkl" \
     --input-stage gen_original_tof \
     --mode weight \
     --temperature 2.0 \
@@ -190,9 +190,9 @@ for SEED in 2024 2025 2026; do
     --dataset "$DATASET" \
     --scenario "$SCENARIO" \
     --variant proposed_causal_gss_gpt55_causal_tof \
-    --generated-pkl "$CAUSAL_DIR/generated_smartgen_tof_causal_tof.pkl" \
-    --raw-generated-pkl "$GEN_PKL" \
-    --smartgen-tof-pkl "$TOF_DIR/smartgen_tof.pkl" \
+    --generated-pkl "$CAUSAL_DIR/generated_gen_tof_causal_tof.pkl" \
+    --pre-tof-pkl "$GEN_PKL" \
+    --gen-tof-pkl "$TOF_DIR/gen_tof.pkl" \
     --seed "$SEED" \
     --out-dir "$AD_ROOT/proposed_causal_gss_gpt55_causal_tof" \
     --gen-root "$GEN_ROOT" \

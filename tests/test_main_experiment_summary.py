@@ -9,28 +9,28 @@ from scripts.summarize_main_experiment import (
 
 
 def _write_metrics(root, variant, seed, f1, precision=0.5):
-    run = root / f"fr_st_{variant}_seed{seed}"
+    run = root / f"sp_st_{variant}_seed{seed}"
     run.mkdir(parents=True)
     payload = {
-        "dataset": "fr",
+        "dataset": "sp",
         "scenario": "st",
         "seed": seed,
         "variant": variant,
         "input_pkl": str(run / "input.pkl"),
         "input_stage": "gen_original_tof_plus_causal_tof" if variant == "proposed_causal_gss_gpt55_causal_tof" else "gen_original_tof",
-        "used_smartgen_original_tof": True,
+        "used_gen_original_tof": True,
         "used_causal_tof": variant == "proposed_causal_gss_gpt55_causal_tof",
-        "downstream_pipeline": "smartgen_builtin_anomaly_detection_pipeline",
+        "downstream_pipeline": "gen_builtin_downstream_ad",
         "generator": "gpt55_generation",
         "api_llm": False,
         "num_generated_before_tof": 10,
-        "num_generated_after_smartgen_tof": 8,
+        "num_generated_after_gen_tof": 8,
         "num_generated_after_causal_tof": 7 if variant == "proposed_causal_gss_gpt55_causal_tof" else None,
         "train_size": 6,
         "validation_size": 2,
         "test_size": 5,
         "threshold": 0.1,
-        "threshold_source": "validation_percentile_95.5",
+        "threshold_source": "validation_percentile_95.0",
         "precision": precision,
         "recall": 1.0,
         "f1": f1,

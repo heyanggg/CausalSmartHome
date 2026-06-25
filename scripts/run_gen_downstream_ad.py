@@ -15,12 +15,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from causal_smart_home.smartgen_experiment import (
+from causal_smart_home.gen_downstream_ad import (
     DEFAULT_THRESHOLD_PERCENTAGES,
-    SmartGenAnomalyRunConfig,
-    default_smartgen_paths,
+    GenDownstreamADRunConfig,
+    default_gen_paths,
     load_pickle,
-    run_smartgen_anomaly_experiment,
+    run_gen_downstream_ad_experiment,
 )
 
 
@@ -34,16 +34,15 @@ VARIANTS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Gen built-in downstream AD for the current main experiment.")
-    parser.add_argument("--dataset", required=True, choices=["fr", "sp", "us"])
-    parser.add_argument("--scenario", required=True, choices=["st", "tt", "nt"], help="CausalSmartHome scenario suffix; st=spring, tt=night, nt=multiple.")
+    parser.add_argument("--dataset", required=True, choices=["sp"])
+    parser.add_argument("--scenario", required=True, choices=["st"], help="Current bundled main experiment scenario.")
     parser.add_argument("--variant", required=True, choices=sorted(VARIANTS))
     parser.add_argument("--generated-pkl", required=True, type=Path, help="Input pkl for this AD variant.")
-    parser.add_argument("--raw-generated-pkl", type=Path, help="Fresh pre-TOF pkl used only for provenance/counts.")
-    parser.add_argument("--smartgen-tof-pkl", type=Path, help="SmartGen original TOF output pkl used only for provenance/counts when current input is Causal-TOF output.")
+    parser.add_argument("--pre-tof-pkl", type=Path, help="Pre-TOF generated pkl used only for provenance/counts.")
+    parser.add_argument("--gen-tof-pkl", type=Path, help="Gen original TOF output pkl used only for provenance/counts when current input is Causal-TOF output.")
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--gen-root", type=Path, default=GEN_ROOT)
-    parser.add_argument("--causal-smart-home-root", type=Path, default=REPO_ROOT)
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--split-ratio", type=float, default=0.8)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
@@ -101,8 +100,8 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
     if path is None:
         return {}
     candidates = [
-        path.parent / "smartgen_original_tof_report.json",
-        path.with_suffix(path.suffix + ".smartgen_original_tof_report.json"),
+        path.parent / "gen_original_tof_report.json",
+        path.with_suffix(path.suffix + ".gen_original_tof_report.json"),
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -116,28 +115,28 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
     variant = args.variant
     current_len = _pickle_len(args.generated_pkl)
-    raw_len = _pickle_len(args.raw_generated_pkl)
-    smartgen_tof_len = _pickle_len(args.smartgen_tof_pkl)
-    tof_report = _read_tof_report(args.smartgen_tof_pkl or (args.generated_pkl if used_smartgen_original_tof_for_variant(variant) else None))
+    pre_tof_len = _pickle_len(args.pre_tof_pkl)
+    gen_tof_len = _pickle_len(args.gen_tof_pkl)
+    tof_report = _read_tof_report(args.gen_tof_pkl or (args.generated_pkl if used_gen_original_tof_for_variant(variant) else None))
 
-    before = raw_len
-    after_smartgen = smartgen_tof_len
+    before = pre_tof_len
+    after_gen = gen_tof_len
     after_causal = None
     if variant == "ablation_no_causal_tof":
         before = before if before is not None else tof_report.get("num_generated_before_tof")
-        after_smartgen = current_len
+        after_gen = current_len
     elif variant == "proposed_causal_gss_gpt55_causal_tof":
         before = before if before is not None else tof_report.get("num_generated_before_tof")
-        after_smartgen = after_smartgen if after_smartgen is not None else tof_report.get("num_generated_after_smartgen_tof")
+        after_gen = after_gen if after_gen is not None else tof_report.get("num_generated_after_gen_tof")
         after_causal = current_len
 
     return {
         "input_pkl": str(args.generated_pkl.resolve()),
         "input_stage": input_stage_for_variant(variant),
-        "used_smartgen_original_tof": used_smartgen_original_tof_for_variant(variant),
+        "used_gen_original_tof": used_gen_original_tof_for_variant(variant),
         "used_causal_tof": used_causal_tof_for_variant(variant),
         "num_generated_before_tof": before,
-        "num_generated_after_smartgen_tof": after_smartgen,
+        "num_generated_after_gen_tof": after_gen,
         "num_generated_after_causal_tof": after_causal,
     }
 
@@ -186,7 +185,7 @@ def input_stage_for_variant(variant: str) -> str:
     return variant
 
 
-def used_smartgen_original_tof_for_variant(variant: str) -> bool:
+def used_gen_original_tof_for_variant(variant: str) -> bool:
     return variant in VARIANTS
 
 
@@ -196,11 +195,11 @@ def used_causal_tof_for_variant(variant: str) -> bool:
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     variant = args.variant
-    provenance = read_generation_provenance(args.raw_generated_pkl or args.generated_pkl)
+    provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
     threshold_percentage = (
         args.threshold_percentage
         if args.threshold_percentage is not None
-        else DEFAULT_THRESHOLD_PERCENTAGES[(args.dataset, smartgen_env(args.scenario))]
+        else DEFAULT_THRESHOLD_PERCENTAGES[(args.dataset, gen_env(args.scenario))]
     )
     metrics_path = payload.get("result_path")
     normalized = {
@@ -209,8 +208,8 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "scenario": args.scenario,
         "seed": args.seed,
         "variant": variant,
-        "smartgen_env": smartgen_env(args.scenario),
-        "downstream_pipeline": "smartgen_builtin_anomaly_detection_pipeline",
+        "gen_env": gen_env(args.scenario),
+        "downstream_pipeline": "gen_builtin_downstream_ad",
         "generator": provenance.get("generator", generator_for_variant(variant)),
         "generation_model": provenance.get("generation_model", "GPT-5.5"),
         "api_llm": provenance.get("api_llm", False),
@@ -232,7 +231,7 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "split_ratio": args.split_ratio,
         "device": payload.get("device"),
         "requested_device": args.device,
-        "raw_result_path": payload.get("result_path"),
+        "pipeline_result_path": payload.get("result_path"),
         "metrics_path": str((args.out_dir.resolve() / "downstream_ad_metrics.json")),
         "run_dir": str(args.out_dir.resolve()),
         "synthetic_pkl": payload.get("synthetic_pkl"),
@@ -249,12 +248,12 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
     return normalized
 
 
-def smartgen_env(scenario: str) -> str:
-    mapping = {"st": "spring", "tt": "night", "nt": "multiple"}
+def gen_env(scenario: str) -> str:
+    mapping = {"st": "spring"}
     try:
         return mapping[scenario]
     except KeyError as exc:
-        raise ValueError("scenario must be one of: st, tt, nt") from exc
+        raise ValueError("scenario must be st for the bundled main experiment") from exc
 
 
 def command_text() -> str:
@@ -268,13 +267,13 @@ PER_SEED_FIELDS = [
     "variant",
     "input_pkl",
     "input_stage",
-    "used_smartgen_original_tof",
+    "used_gen_original_tof",
     "used_causal_tof",
     "downstream_pipeline",
     "generator",
     "api_llm",
     "num_generated_before_tof",
-    "num_generated_after_smartgen_tof",
+    "num_generated_after_gen_tof",
     "num_generated_after_causal_tof",
     "train_size",
     "validation_size",
@@ -310,7 +309,7 @@ def fmt(value: Any) -> str:
 
 def write_markdown(path: Path, metrics: dict[str, Any]) -> None:
     lines = [
-        "# Stage4C SmartGen Built-in AD Run",
+        "# Gen Built-in Downstream AD Run",
         "",
         "| field | value |",
         "| --- | --- |",
@@ -321,12 +320,11 @@ def write_markdown(path: Path, metrics: dict[str, Any]) -> None:
 
 
 def required_paths(args: argparse.Namespace) -> dict[str, Path]:
-    env = smartgen_env(args.scenario)
-    defaults = default_smartgen_paths(args.gen_root, args.dataset, env)
+    env = gen_env(args.scenario)
+    defaults = default_gen_paths(args.gen_root, args.dataset, env)
     paths = {
         "generated_pkl": args.generated_pkl,
         "gen_root": args.gen_root,
-        "causal_smart_home_root": args.causal_smart_home_root,
         "attack_pkl": args.attack_pkl or defaults["attack_pkl"],
         "target_test_pkl": args.target_test_pkl or defaults["target_test_pkl"],
     }
@@ -346,7 +344,7 @@ def write_failure(out_dir: Path, args: argparse.Namespace, reason: str, missing:
         "scenario": args.scenario,
         "variant": args.variant,
         "seed": args.seed,
-        "downstream_pipeline": "smartgen_builtin_anomaly_detection_pipeline",
+        "downstream_pipeline": "gen_builtin_downstream_ad",
     }
     (out_dir / "failure_report.json").write_text(json.dumps(jsonable(report), ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -362,27 +360,24 @@ def main() -> None:
     manifest = {
         "dataset": args.dataset,
         "scenario": args.scenario,
-        "smartgen_env": smartgen_env(args.scenario),
+        "gen_env": gen_env(args.scenario),
         "variant": args.variant,
         "seed": args.seed,
         "paths": {key: str(path) for key, path in paths.items()},
     }
     (out_dir / "input_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
     config_payload = {
-        "downstream_pipeline": "smartgen_builtin_anomaly_detection_pipeline",
+        "downstream_pipeline": "gen_builtin_downstream_ad",
         "gen_entrypoint": str((args.gen_root / "anomaly_detection_pipeline" / "models1.py").resolve()),
-        "generator": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("generator", generator_for_variant(args.variant)),
-        "generation_model": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get(
-            "generation_model", "GPT-5.5"
-        ),
-        "api_llm": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("api_llm", False),
-        "manual_generation": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get(
-            "manual_generation", True
-        ),
-        "gpt55_generation_assisted": read_generation_provenance(args.raw_generated_pkl or args.generated_pkl).get("gpt55_generation_assisted"),
+        "generator": provenance.get("generator", generator_for_variant(args.variant)),
+        "generation_model": provenance.get("generation_model", "GPT-5.5"),
+        "api_llm": provenance.get("api_llm", False),
+        "manual_generation": provenance.get("manual_generation", True),
+        "gpt55_generation_assisted": provenance.get("gpt55_generation_assisted"),
         "input_stage": input_stage_for_variant(args.variant),
-        "used_smartgen_original_tof": used_smartgen_original_tof_for_variant(args.variant),
+        "used_gen_original_tof": used_gen_original_tof_for_variant(args.variant),
         "used_causal_tof": used_causal_tof_for_variant(args.variant),
         "epochs": args.epochs,
         "split_ratio": args.split_ratio,
@@ -396,10 +391,10 @@ def main() -> None:
         raise FileNotFoundError(f"missing required input file(s): {missing}")
 
     try:
-        config = SmartGenAnomalyRunConfig(
-            smartgen_root=args.gen_root.resolve(),
+        config = GenDownstreamADRunConfig(
+            gen_root=args.gen_root.resolve(),
             dataset=args.dataset,
-            env=smartgen_env(args.scenario),
+            env=gen_env(args.scenario),
             synthetic_pkl=args.generated_pkl.resolve(),
             out_dir=out_dir,
             tag=f"{args.dataset}_{args.scenario}_{args.variant}_seed{args.seed}",
@@ -414,10 +409,10 @@ def main() -> None:
             validation_pkl=paths.get("validation_pkl"),
             threshold_percentage=args.threshold_percentage,
         )
-        payload = run_smartgen_anomaly_experiment(config)
+        payload = run_gen_downstream_ad_experiment(config)
         payload["generated_size_checked"] = len(load_pickle(args.generated_pkl))
         normalized = normalize_metrics(payload, args)
-        (out_dir / "raw_smartgen_metrics.json").write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "gen_downstream_ad_payload.json").write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
         (out_dir / "normalized_metrics.json").write_text(json.dumps(jsonable(normalized), ensure_ascii=False, indent=2), encoding="utf-8")
         (out_dir / "downstream_ad_metrics.json").write_text(json.dumps(jsonable(normalized), ensure_ascii=False, indent=2), encoding="utf-8")
         write_csv(out_dir / "metrics.csv", normalized)

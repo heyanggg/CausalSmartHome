@@ -7,18 +7,18 @@ import shlex
 import shutil
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .smartgen_experiment import DEFAULT_THRESHOLDS, load_pickle, save_pickle
+from .gen_downstream_ad import DEFAULT_THRESHOLDS, load_pickle
 
 
-ENV_BY_SCENARIO = {"st": "spring", "tt": "night", "nt": "multiple"}
+ENV_BY_SCENARIO = {"st": "spring"}
 
 
 @dataclass(frozen=True)
-class SmartGenOriginalTOFConfig:
+class GenOriginalTOFConfig:
     """Configuration for invoking Gen's original two-stage TOF.
 
     The wrapper does not reimplement TOF. For real runs it copies the fresh
@@ -28,7 +28,7 @@ class SmartGenOriginalTOFConfig:
     followed by utility/value selection.
     """
 
-    smartgen_root: Path
+    gen_root: Path
     dataset: str
     scenario: str
     generated_pkl: Path
@@ -44,37 +44,37 @@ class SmartGenOriginalTOFConfig:
     dry_run: bool = False
 
 
-def smartgen_env_for_scenario(scenario: str) -> str:
+def gen_env_for_scenario(scenario: str) -> str:
     try:
         return ENV_BY_SCENARIO[scenario]
     except KeyError as exc:
-        raise ValueError("scenario must be one of: st, tt, nt") from exc
+        raise ValueError("scenario must be st for the bundled main experiment") from exc
 
 
-def smartgen_code_dir(smartgen_root: str | Path) -> Path:
-    root = Path(smartgen_root).resolve()
-    candidates = [root / "SmartGen", root]
+def gen_code_dir(gen_root: str | Path) -> Path:
+    root = Path(gen_root).resolve()
+    candidates = [root / "gen_original_tof", root]
     for candidate in candidates:
         if (candidate / "security_check.py").exists():
             return candidate
     # Return the most likely path for clear downstream errors.
-    return root / "SmartGen"
+    return root / "gen_original_tof"
 
 
-def resolve_security_check_path(config: SmartGenOriginalTOFConfig) -> Path:
+def resolve_security_check_path(config: GenOriginalTOFConfig) -> Path:
     if config.security_check_path is not None:
         path = config.security_check_path.resolve()
     else:
-        path = smartgen_code_dir(config.smartgen_root) / "security_check.py"
+        path = gen_code_dir(config.gen_root) / "security_check.py"
     if not path.exists():
         raise FileNotFoundError(
-            "SmartGen original security_check.py was not found. "
-            f"Looked for: {path}. Set --smartgen-root or --security-check-path to a complete SmartGen checkout."
+            "Gen original security_check.py was not found. "
+            f"Looked for: {path}. Set --gen-root or --security-check-path to the bundled Gen TOF code."
         )
     return path
 
 
-def expected_smartgen_tof_paths(code_dir: Path, dataset: str, env: str, threshold: str, method: str, model: str) -> dict[str, Path]:
+def expected_gen_tof_paths(code_dir: Path, dataset: str, env: str, threshold: str, method: str, model: str) -> dict[str, Path]:
     base = f"{dataset}_{env}_generation_{method}_th={threshold}_{model}_seq"
     filter_dir = code_dir / "filter_data" / dataset / env
     return {
@@ -99,8 +99,8 @@ def count_pickle_items(path: str | Path) -> int | None:
         return None
 
 
-def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, Any]:
-    env = smartgen_env_for_scenario(config.scenario)
+def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
+    env = gen_env_for_scenario(config.scenario)
     threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, env)]
     out_dir = config.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
     report: dict[str, Any] = {
         "dataset": config.dataset,
         "scenario": config.scenario,
-        "smartgen_env": env,
+        "gen_env": env,
         "seed": config.seed,
         "method": config.method,
         "model": config.model,
@@ -119,7 +119,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
         "input_pkl": str(config.generated_pkl.resolve()),
         "out_pkl": str(out_pkl),
         "num_generated_before_tof": input_count,
-        "used_smartgen_original_tof": False,
+        "used_gen_original_tof": False,
         "gen_original_tof_filter": "reconstruction_loss_iqr_outlier_detection",
         "gen_original_tof_utility_selection": "utility_value_selection",
         "dry_run": bool(config.dry_run),
@@ -130,8 +130,8 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
         report.update(
             {
                 "status": "dry_run_copied_input",
-                "used_smartgen_original_tof": False,
-                "num_generated_after_smartgen_tof": count_pickle_items(out_pkl),
+                "used_gen_original_tof": False,
+                "num_generated_after_gen_tof": count_pickle_items(out_pkl),
                 "note": "Dry run did not execute Gen security_check.py.",
             }
         )
@@ -140,7 +140,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
 
     security_check = resolve_security_check_path(config)
     code_dir = security_check.parent.resolve()
-    paths = expected_smartgen_tof_paths(code_dir, config.dataset, env, threshold, config.method, config.model)
+    paths = expected_gen_tof_paths(code_dir, config.dataset, env, threshold, config.method, config.model)
     paths["input"].parent.mkdir(parents=True, exist_ok=True)
     paths["check_model"].parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(config.generated_pkl.resolve(), paths["input"])
@@ -153,26 +153,26 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
     code = (
         "import importlib.util, os; "
         f"os.chdir({str(code_dir)!r}); "
-        f"spec=importlib.util.spec_from_file_location('smartgen_security_check', {str(security_check)!r}); "
+        f"spec=importlib.util.spec_from_file_location('gen_security_check', {str(security_check)!r}); "
         "mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); "
         f"mod.setup_seed({int(config.seed)}) if hasattr(mod, 'setup_seed') else None; "
         f"mod.security_check({config.dataset!r}, {env!r}, {threshold!r}, {config.method!r}, {config.model!r})"
     )
     cmd = [config.python_executable, "-c", code]
     report["security_check_path"] = str(security_check)
-    report["smartgen_code_dir"] = str(code_dir)
+    report["gen_code_dir"] = str(code_dir)
     report["command"] = " ".join(shlex.quote(part) for part in cmd)
     report["expected_paths"] = {key: str(value) for key, value in paths.items()}
 
-    completed = subprocess.run(cmd, cwd=str(config.smartgen_root.resolve()), env=env_vars, text=True, capture_output=True)
+    completed = subprocess.run(cmd, cwd=str(config.gen_root.resolve()), env=env_vars, text=True, capture_output=True)
     report["returncode"] = completed.returncode
     report["stdout_tail"] = completed.stdout[-4000:]
     report["stderr_tail"] = completed.stderr[-4000:]
     if completed.returncode != 0:
-        report.update({"status": "failed", "num_generated_after_smartgen_tof": None})
+        report.update({"status": "failed", "num_generated_after_gen_tof": None})
         write_report(out_dir, report)
         raise RuntimeError(
-            "Gen original TOF failed; see smartgen_original_tof_report.json. "
+            "Gen original TOF failed; see gen_original_tof_report.json. "
             f"stderr tail: {completed.stderr[-1000:]}"
         )
 
@@ -191,10 +191,10 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
     report.update(
         {
             "status": "success",
-            "used_smartgen_original_tof": True,
+            "used_gen_original_tof": True,
             "selected_source": str(selected_source),
             "output_stage": output_stage,
-            "num_generated_after_smartgen_tof": count_pickle_items(out_pkl),
+            "num_generated_after_gen_tof": count_pickle_items(out_pkl),
         }
     )
     write_report(out_dir, report)
@@ -202,7 +202,7 @@ def run_smartgen_original_tof(config: SmartGenOriginalTOFConfig) -> dict[str, An
 
 
 def write_report(out_dir: Path, report: dict[str, Any]) -> None:
-    (out_dir / "smartgen_original_tof_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "gen_original_tof_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
         "# Gen Original TOF Report",
         "",
@@ -216,11 +216,11 @@ def write_report(out_dir: Path, report: dict[str, Any]) -> None:
         "seed",
         "input_pkl",
         "out_pkl",
-        "used_smartgen_original_tof",
+        "used_gen_original_tof",
         "num_generated_before_tof",
-        "num_generated_after_smartgen_tof",
+        "num_generated_after_gen_tof",
         "output_stage",
         "security_check_path",
     ]:
         lines.append(f"| {key} | {report.get(key, '')} |")
-    (out_dir / "smartgen_original_tof_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out_dir / "gen_original_tof_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

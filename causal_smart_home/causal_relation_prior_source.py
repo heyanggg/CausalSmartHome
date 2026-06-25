@@ -65,7 +65,6 @@ def resolve_causal_relation_prior(
     prior_matrix_path: str | None = None,
     source_pkl: str | None = None,
     out_dir: str | None = None,
-    causal_relation_project_dir: str | None = None,
     adapter_mode: str = "existing",
     level: str = "device",
     lag: int = 4,
@@ -84,7 +83,6 @@ def resolve_causal_relation_prior(
         "prior_matrix_path": str(prior_matrix_path) if prior_matrix_path else None,
         "source_pkl": str(source_pkl) if source_pkl else None,
         "out_dir": str(out_dir) if out_dir else None,
-        "causal_relation_project_dir": str(causal_relation_project_dir) if causal_relation_project_dir else None,
         "adapter_mode": adapter_mode,
         "level": level,
         "lag": lag,
@@ -117,7 +115,6 @@ def resolve_causal_relation_prior(
         resolved = _resolved_from_existing_adapter(
             source_pkl=Path(source_pkl),
             out_dir=Path(out_dir) if out_dir else None,
-            causal_relation_project_dir=Path(causal_relation_project_dir) if causal_relation_project_dir else None,
             level=level,
             lag=lag,
             sparse_threshold=sparse_threshold,
@@ -221,7 +218,6 @@ def _resolved_from_matrix_path(
 def _resolved_from_existing_adapter(
     source_pkl: Path,
     out_dir: Path | None,
-    causal_relation_project_dir: Path | None,
     level: str,
     lag: int,
     sparse_threshold: float,
@@ -238,10 +234,7 @@ def _resolved_from_existing_adapter(
     if tensorized.tensor.shape[1] == 0:
         raise ValueError(f"source_pkl yielded no {level} channels: {source_pkl}")
 
-    # Reuse the existing project adapter.  The current adapter delegates to the
-    # compact causal-relation-style GradientCausalMiner fallback for event tensors, so the
-    # resolved source is marked explicitly.
-    adapter = CausalRelationAdapter(str(causal_relation_project_dir) if causal_relation_project_dir else None)
+    adapter = CausalRelationAdapter()
     prior = adapter.mine_event_prior(
         tensorized.tensor,
         tensorized.channel_to_key,
@@ -268,7 +261,7 @@ def _resolved_from_existing_adapter(
             "input_format": "source_pkl_via_existing_adapter",
             "sequence_count": len(sequences),
             "tensor_shape": list(tensorized.tensor.shape),
-            "adapter_note": "CausalRelationAdapter.mine_event_prior calls the existing compact causal-relation-style fallback for event tensors.",
+            "adapter_note": "CausalRelationAdapter.mine_event_prior calls the compact causal-relation-style fallback for event tensors.",
             **(prior.meta or {}),
         },
     )

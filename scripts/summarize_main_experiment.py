@@ -22,13 +22,13 @@ PER_SEED_FIELDS = [
     "variant",
     "input_pkl",
     "input_stage",
-    "used_smartgen_original_tof",
+    "used_gen_original_tof",
     "used_causal_tof",
     "downstream_pipeline",
     "generator",
     "api_llm",
     "num_generated_before_tof",
-    "num_generated_after_smartgen_tof",
+    "num_generated_after_gen_tof",
     "num_generated_after_causal_tof",
     "train_size",
     "validation_size",
@@ -105,7 +105,7 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
     if not row.get("input_pkl"):
         row["input_pkl"] = payload.get("synthetic_pkl", "")
     for key in [
-        "used_smartgen_original_tof",
+        "used_gen_original_tof",
         "used_causal_tof",
         "api_llm",
     ]:
@@ -116,7 +116,7 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
         row[key] = _as_float(row.get(key))
     for key in [
         "num_generated_before_tof",
-        "num_generated_after_smartgen_tof",
+        "num_generated_after_gen_tof",
         "num_generated_after_causal_tof",
         "train_size",
         "validation_size",

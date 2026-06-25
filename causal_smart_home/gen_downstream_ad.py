@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
-import csv
 import importlib.util
 import json
 import math
@@ -13,79 +12,21 @@ import pickle
 import random
 import sys
 
-from .causal_filter import CausalConsistencyFilter
-from .causal_prior import CausalPrior
-from .schema import load_numeric_sequences
 
-
-VOCAB_DIC = {"fr": 223, "sp": 235, "us": 269}
+VOCAB_DIC = {"sp": 235}
 
 DEFAULT_THRESHOLDS = {
-    ("fr", "spring"): "0.918",
-    ("fr", "night"): "0.92",
-    ("fr", "multiple"): "0.915",
     ("sp", "spring"): "0.915",
-    ("sp", "night"): "0.917",
-    ("sp", "multiple"): "0.915",
-    ("us", "spring"): "0.905",
-    ("us", "night"): "0.919",
-    ("us", "multiple"): "0.913",
 }
 
 DEFAULT_THRESHOLD_PERCENTAGES = {
-    ("fr", "spring"): 95.5,
-    ("fr", "night"): 95.0,
-    ("fr", "multiple"): 99.0,
     ("sp", "spring"): 95.0,
-    ("sp", "night"): 95.0,
-    ("sp", "multiple"): 99.0,
-    ("us", "spring"): 95.0,
-    ("us", "night"): 93.0,
-    ("us", "multiple"): 99.0,
 }
-
-def resolve_sweep_rows(
-    sweep_summary_csv: str | Path,
-    slugs: Sequence[str] | None = None,
-    cwd: str | Path | None = None,
-) -> list[dict[str, str]]:
-    """Resolve kept_path rows from a generation/causal-filter sweep summary.
-
-    This small helper used to live in the optional Gen wrapper.  It is
-    kept here so the SmartGen built-in AD mainline does not import or depend on
-    Gen as a downstream pipeline.
-    """
-    summary = Path(sweep_summary_csv).resolve()
-    selected = set(slugs or [])
-    with open(summary, newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    if selected:
-        rows = [row for row in rows if row.get("slug") in selected]
-    if selected and len(rows) != len(selected):
-        found = {row.get("slug") for row in rows}
-        missing = sorted(selected - found)
-        raise ValueError(f"sweep summary is missing selected slugs: {missing}")
-
-    root = Path(cwd).resolve() if cwd else Path.cwd()
-    resolved: list[dict[str, str]] = []
-    for row in rows:
-        kept = row.get("kept_path", "")
-        if not kept:
-            raise ValueError(f"row {row.get('slug')} has no kept_path")
-        kept_path = Path(kept)
-        if not kept_path.is_absolute():
-            candidate = root / kept_path
-            kept_path = candidate if candidate.exists() else kept_path.resolve()
-        item = dict(row)
-        item["kept_path"] = str(kept_path)
-        resolved.append(item)
-    return resolved
-
 
 
 @dataclass(frozen=True)
-class SmartGenAnomalyRunConfig:
-    smartgen_root: Path
+class GenDownstreamADRunConfig:
+    gen_root: Path
     dataset: str
     env: str
     synthetic_pkl: Path
@@ -104,45 +45,20 @@ class SmartGenAnomalyRunConfig:
     attack_pkl: Path | None = None
     target_test_pkl: Path | None = None
     validation_pkl: Path | None = None
-    weight_prior_json: Path | None = None
-    weight_top_k_edges: int = 30
-    weight_min_edge_weight: float | None = None
-    weight_floor: float = 0.2
-    weight_power: float = 1.0
 
 
-def default_smartgen_paths(smartgen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
-    pipeline = Path(smartgen_root).resolve() / "anomaly_detection_pipeline"
-    if env == "spring":
-        attack_name = f"labeled_{dataset}_spring_attack_heater.pkl"
-    elif env == "night":
-        attack_name = f"labeled_{dataset}_night_attack_time.pkl"
-    elif env == "multiple":
-        attack_name = f"labeled_{dataset}_multiple_attack_tv.pkl"
-    else:
-        raise ValueError("env must be spring, night, or multiple")
+def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
+    if dataset != "sp":
+        raise ValueError("dataset must be sp for the bundled main experiment")
+    if env != "spring":
+        raise ValueError("env must be spring for the bundled main experiment")
+    pipeline = Path(gen_root).resolve() / "anomaly_detection_pipeline"
+    attack_name = "labeled_sp_spring_attack_heater.pkl"
     return {
         "pipeline_root": pipeline,
         "attack_pkl": pipeline / "attack" / dataset / attack_name,
         "target_test_pkl": pipeline / "test" / dataset / env / "test.pkl",
     }
-
-
-def default_synthetic_pkl(
-    smartgen_root: str | Path,
-    dataset: str,
-    env: str,
-    method: str = "SPPC",
-    model: str = "gpt-4o",
-    threshold: str | None = None,
-) -> Path:
-    threshold = threshold or DEFAULT_THRESHOLDS[(dataset, env)]
-    return (
-        Path(smartgen_root).resolve()
-        / "anomaly_detection_pipeline"
-        / "synthetic_data"
-        / f"{dataset}_{env}_generation_{method}_th={threshold}_{model}_seq_filter_true.pkl"
-    )
 
 
 def load_pickle(path: str | Path) -> Any:
@@ -157,7 +73,7 @@ def save_pickle(path: str | Path, obj: Any) -> None:
         pickle.dump(obj, f)
 
 
-def split_random_to_files(
+def split_generated_to_train_validation(
     data_file: str | Path,
     train_file: str | Path,
     vld_file: str | Path,
@@ -175,17 +91,17 @@ def split_random_to_files(
     return train, vld
 
 
-def _import_smartgen_models(smartgen_root: Path):
-    pipeline_root = smartgen_root / "anomaly_detection_pipeline"
+def _import_gen_models(gen_root: Path):
+    pipeline_root = gen_root / "anomaly_detection_pipeline"
     module_path = pipeline_root / "models1.py"
     if not module_path.exists():
-        raise FileNotFoundError(f"SmartGen models module not found: {module_path}")
+        raise FileNotFoundError(f"Gen models module not found: {module_path}")
     root_str = str(pipeline_root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
-    spec = importlib.util.spec_from_file_location("_csh_smartgen_models", module_path)
+    spec = importlib.util.spec_from_file_location("_csh_gen_models", module_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"cannot import SmartGen models from {module_path}")
+        raise ImportError(f"cannot import Gen models from {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -195,7 +111,7 @@ def _resolve_torch_device(requested: str):
     try:
         import torch
     except ImportError as exc:
-        raise RuntimeError("SmartGen anomaly evaluation requires torch for real training runs") from exc
+        raise RuntimeError("Gen anomaly evaluation requires torch for real training runs") from exc
     if requested == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if requested == "cuda" and not torch.cuda.is_available():
@@ -237,11 +153,7 @@ def _pad_sequences(vocab_size: int, sequences: Sequence[Sequence[int]], length: 
 def _dataset_for_env(models_module, env: str):
     if env == "spring":
         return models_module.TimeSeriesDataset2
-    if env == "night":
-        return models_module.TimeSeriesDataset3
-    if env == "multiple":
-        return models_module.TimeSeriesDataset4
-    raise ValueError("env must be spring, night, or multiple")
+    raise ValueError("env must be spring for the bundled main experiment")
 
 
 def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path, batch_size: int):
@@ -250,33 +162,6 @@ def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path
     data = np.array(_pad_sequences(vocab_size, load_pickle(data_file)))
     dataset = _dataset_for_env(models_module, env)(vocab_size, data)
     return DataLoader(dataset, batch_size=batch_size, shuffle=False)
-
-
-def _make_weighted_loader(
-    models_module,
-    env: str,
-    vocab_size: int,
-    data_file: str | Path,
-    weights_file: str | Path,
-    batch_size: int,
-):
-    from torch.utils.data import DataLoader, Dataset
-
-    data = np.array(_pad_sequences(vocab_size, load_pickle(data_file)))
-    dataset = _dataset_for_env(models_module, env)(vocab_size, data)
-    weights = np.asarray(load_pickle(weights_file), dtype=np.float32)
-    if len(weights) != len(dataset):
-        raise ValueError(f"weights length {len(weights)} does not match dataset length {len(dataset)}")
-
-    class _WeightedDataset(Dataset):
-        def __len__(self):
-            return len(dataset)
-
-        def __getitem__(self, index):
-            src, padding_mask, mask_v = dataset[index]
-            return src, padding_mask, mask_v, weights[index]
-
-    return DataLoader(_WeightedDataset(), batch_size=batch_size, shuffle=False)
 
 
 def _sequence_loss(output, src, mask_v, vocab_size: int, seq_len: int, criterion):
@@ -290,24 +175,6 @@ def _sequence_loss(output, src, mask_v, vocab_size: int, seq_len: int, criterion
     return torch.sum(loss) / denom
 
 
-def _sequence_loss_per_sample(output, src, mask_v, vocab_size: int, seq_len: int, criterion):
-    import torch
-
-    loss = criterion(output.view(-1, vocab_size), src.view(-1))
-    loss = loss.reshape(-1, seq_len) * mask_v
-    denom = torch.sum(mask_v, dim=1).clamp_min(1).to(loss.dtype)
-    return torch.sum(loss, dim=1) / denom
-
-
-def _weighted_sequence_loss(output, src, mask_v, sample_weights, vocab_size: int, seq_len: int, criterion):
-    import torch
-
-    per_sample = _sequence_loss_per_sample(output, src, mask_v, vocab_size, seq_len, criterion)
-    weights = sample_weights.to(per_sample.device).to(per_sample.dtype)
-    denom = torch.sum(weights).clamp_min(1e-8)
-    return torch.sum(per_sample * weights) / denom
-
-
 def _train_adaptive(
     models_module,
     env: str,
@@ -317,7 +184,6 @@ def _train_adaptive(
     model_path: str | Path,
     seq_len: int,
     device,
-    train_weights_file: str | Path | None = None,
 ) -> list[dict[str, float]]:
     import torch
     import torch.nn as nn
@@ -332,28 +198,18 @@ def _train_adaptive(
     ).to(device)
     criterion = nn.CrossEntropyLoss(reduction="none")
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    if train_weights_file is None:
-        train_loader = _make_loader(models_module, env, vocab_size, train_file, batch_size=32)
-    else:
-        train_loader = _make_weighted_loader(models_module, env, vocab_size, train_file, train_weights_file, batch_size=32)
+    train_loader = _make_loader(models_module, env, vocab_size, train_file, batch_size=32)
 
     history: list[dict[str, float]] = []
     for epoch in range(epochs):
         total_loss = 0.0
         for batch in train_loader:
-            if train_weights_file is None:
-                src, padding_mask, mask_v = batch
-                sample_weights = None
-            else:
-                src, padding_mask, mask_v, sample_weights = batch
+            src, padding_mask, mask_v = batch
             src = src.to(device).long()
             mask_v = mask_v.to(device)
             padding_mask = padding_mask.to(device)
             output = model(src, src_key_padding_mask=padding_mask)
-            if sample_weights is None:
-                loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
-            else:
-                loss = _weighted_sequence_loss(output, src, mask_v, sample_weights, vocab_size, seq_len, criterion)
+            loss = _sequence_loss(output, src, mask_v, vocab_size, seq_len, criterion)
             total_loss += loss.item()
             optimizer.zero_grad()
             loss.backward()
@@ -510,13 +366,8 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
-def _prepare_split(config: SmartGenAnomalyRunConfig, train_pkl: Path, vld_pkl: Path) -> tuple[int, int]:
-    if config.env == "multiple":
-        data = load_pickle(config.synthetic_pkl)
-        save_pickle(train_pkl, data)
-        save_pickle(vld_pkl, data)
-        return len(data), len(data)
-    train, vld = split_random_to_files(
+def _prepare_split(config: GenDownstreamADRunConfig, train_pkl: Path, vld_pkl: Path) -> tuple[int, int]:
+    train, vld = split_generated_to_train_validation(
         config.synthetic_pkl,
         train_pkl,
         vld_pkl,
@@ -526,84 +377,12 @@ def _prepare_split(config: SmartGenAnomalyRunConfig, train_pkl: Path, vld_pkl: P
     return len(train), len(vld)
 
 
-def _causal_training_weights(
-    sequences: Sequence[Sequence[int]],
-    prior_json: str | Path,
-    top_k_edges: int,
-    min_edge_weight: float | None,
-    weight_floor: float,
-    weight_power: float,
-) -> tuple[list[float], list[dict[str, Any]]]:
-    if not 0.0 <= weight_floor <= 1.0:
-        raise ValueError("weight_floor must be between 0 and 1")
-    if weight_power <= 0:
-        raise ValueError("weight_power must be positive")
-    prior = CausalPrior.load(prior_json)
-    scorer = CausalConsistencyFilter(prior, top_k_edges=top_k_edges, min_edge_weight=min_edge_weight)
-    weights: list[float] = []
-    scores: list[dict[str, Any]] = []
-    for score in (scorer.score_sequence(seq) for seq in load_numeric_sequences(sequences)):
-        coverage = float(score["causal_coverage"])
-        weight = float(weight_floor + (1.0 - weight_floor) * (coverage ** weight_power))
-        score = dict(score)
-        score["sample_weight"] = weight
-        weights.append(weight)
-        scores.append(score)
-    return weights, scores
-
-
-def _prepare_training_weights(
-    config: SmartGenAnomalyRunConfig,
-    train_pkl: Path,
-    out_dir: Path,
-) -> dict[str, Any]:
-    if config.weight_prior_json is None:
-        return {
-            "weight_prior_json": "",
-            "train_weights_pkl": "",
-            "train_weight_scores_path": "",
-            "weight_top_k_edges": "",
-            "weight_min_edge_weight": "",
-            "weight_floor": "",
-            "weight_power": "",
-            "train_weight_min": "",
-            "train_weight_mean": "",
-            "train_weight_max": "",
-        }
-    train_sequences = load_pickle(train_pkl)
-    weights, scores = _causal_training_weights(
-        train_sequences,
-        prior_json=config.weight_prior_json,
-        top_k_edges=config.weight_top_k_edges,
-        min_edge_weight=config.weight_min_edge_weight,
-        weight_floor=config.weight_floor,
-        weight_power=config.weight_power,
-    )
-    weights_path = out_dir / f"{config.tag}_train_weights.pkl"
-    scores_path = out_dir / f"{config.tag}_train_weight_scores.json"
-    save_pickle(weights_path, weights)
-    scores_path.write_text(json.dumps(_jsonable(scores), ensure_ascii=False, indent=2), encoding="utf-8")
-    arr = np.asarray(weights, dtype=np.float32)
-    return {
-        "weight_prior_json": str(config.weight_prior_json.resolve()),
-        "train_weights_pkl": str(weights_path),
-        "train_weight_scores_path": str(scores_path),
-        "weight_top_k_edges": config.weight_top_k_edges,
-        "weight_min_edge_weight": config.weight_min_edge_weight if config.weight_min_edge_weight is not None else "",
-        "weight_floor": config.weight_floor,
-        "weight_power": config.weight_power,
-        "train_weight_min": float(np.min(arr)) if len(arr) else math.nan,
-        "train_weight_mean": float(np.mean(arr)) if len(arr) else math.nan,
-        "train_weight_max": float(np.max(arr)) if len(arr) else math.nan,
-    }
-
-
-def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[str, Any]:
+def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[str, Any]:
     if config.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = config.cuda_visible_devices
 
-    smartgen_root = config.smartgen_root.resolve()
-    defaults = default_smartgen_paths(smartgen_root, config.dataset, config.env)
+    gen_root = config.gen_root.resolve()
+    defaults = default_gen_paths(gen_root, config.dataset, config.env)
     threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, config.env)]
     threshold_percentage = (
         config.threshold_percentage
@@ -616,11 +395,10 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
     train_pkl = out_dir / f"{config.tag}_train.pkl"
     vld_pkl = out_dir / f"{config.tag}_vld.pkl"
     model_path = out_dir / f"{config.tag}_transformer_autoencoder.pth"
-    result_path = out_dir / f"{config.tag}_smartgen_anomaly_eval.json"
+    result_path = out_dir / f"{config.tag}_gen_downstream_ad_eval.json"
 
     synthetic_data = load_pickle(config.synthetic_pkl)
     train_size, vld_size = _prepare_split(config, train_pkl, vld_pkl)
-    weight_payload = _prepare_training_weights(config, train_pkl, out_dir)
 
     threshold_vld_pkl = (config.validation_pkl or vld_pkl).resolve()
     threshold_vld_size = len(load_pickle(threshold_vld_pkl)) if threshold_vld_pkl.exists() else None
@@ -651,13 +429,12 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         "attack_pkl": str((config.attack_pkl or defaults["attack_pkl"]).resolve()),
         "target_test_pkl": str((config.target_test_pkl or defaults["target_test_pkl"]).resolve()),
     }
-    payload.update(weight_payload)
     if config.dry_run:
         result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return payload
 
     device = _resolve_torch_device(config.device)
-    models_module = _import_smartgen_models(smartgen_root)
+    models_module = _import_gen_models(gen_root)
     vocab_size = VOCAB_DIC[config.dataset]
     seq_len = 10
     _setup_torch_seed(config.seed)
@@ -670,7 +447,6 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
         str(model_path),
         seq_len,
         device,
-        train_weights_file=weight_payload["train_weights_pkl"] or None,
     )
     learned_threshold, validation_losses = _find_threshold_adaptive(
         models_module,
@@ -706,108 +482,3 @@ def run_smartgen_anomaly_experiment(config: SmartGenAnomalyRunConfig) -> dict[st
     payload.update(metrics)
     result_path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
-
-
-SMARTGEN_SWEEP_FIELDS = [
-    "tag",
-    "slug",
-    "synthetic_pkl",
-    "synthetic_size",
-    "train_size",
-    "vld_size",
-    "threshold_vld_pkl",
-    "threshold_vld_size",
-    "recall",
-    "precision",
-    "accuracy",
-    "F1 score",
-    "learned_threshold",
-    "device",
-    "weight_prior_json",
-    "weight_floor",
-    "weight_power",
-    "train_weight_mean",
-    "result_path",
-    "model_path",
-]
-
-
-def summarize_smartgen_payload(payload: dict[str, Any], slug: str) -> dict[str, Any]:
-    return {
-        "tag": payload.get("tag", ""),
-        "slug": slug,
-        "synthetic_pkl": payload.get("synthetic_pkl", ""),
-        "synthetic_size": payload.get("synthetic_size", ""),
-        "train_size": payload.get("train_size", ""),
-        "vld_size": payload.get("vld_size", ""),
-        "threshold_vld_pkl": payload.get("threshold_vld_pkl", ""),
-        "threshold_vld_size": payload.get("threshold_vld_size", ""),
-        "recall": payload.get("recall", ""),
-        "precision": payload.get("precision", ""),
-        "accuracy": payload.get("accuracy", ""),
-        "F1 score": payload.get("F1 score", ""),
-        "learned_threshold": payload.get("learned_threshold", ""),
-        "device": payload.get("device", ""),
-        "weight_prior_json": payload.get("weight_prior_json", ""),
-        "weight_floor": payload.get("weight_floor", ""),
-        "weight_power": payload.get("weight_power", ""),
-        "train_weight_mean": payload.get("train_weight_mean", ""),
-        "result_path": payload.get("result_path", ""),
-        "model_path": payload.get("model_path", ""),
-    }
-
-
-def write_smartgen_sweep_summary(rows: Sequence[dict[str, Any]], out_dir: str | Path) -> tuple[Path, Path]:
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    csv_path = out / "smartgen_anomaly_sweep_summary.csv"
-    json_path = out / "smartgen_anomaly_sweep_summary.json"
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=SMARTGEN_SWEEP_FIELDS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({field: row.get(field, "") for field in SMARTGEN_SWEEP_FIELDS})
-    json_path.write_text(json.dumps(list(rows), ensure_ascii=False, indent=2), encoding="utf-8")
-    return csv_path, json_path
-
-
-def run_smartgen_anomaly_sweep(
-    sweep_summary_csv: str | Path,
-    base_config: SmartGenAnomalyRunConfig,
-    slugs: Sequence[str],
-) -> list[dict[str, Any]]:
-    rows = resolve_sweep_rows(sweep_summary_csv, slugs=slugs)
-    summary_rows: list[dict[str, Any]] = []
-    for row in rows:
-        slug = row["slug"]
-        tag = f"{base_config.tag}_{slug}" if base_config.tag else slug
-        config = SmartGenAnomalyRunConfig(
-            smartgen_root=base_config.smartgen_root,
-            dataset=base_config.dataset,
-            env=base_config.env,
-            synthetic_pkl=Path(row["kept_path"]),
-            out_dir=base_config.out_dir,
-            tag=tag,
-            threshold=base_config.threshold,
-            threshold_percentage=base_config.threshold_percentage,
-            method=base_config.method,
-            model=base_config.model,
-            epochs=base_config.epochs,
-            seed=base_config.seed,
-            split_ratio=base_config.split_ratio,
-            device=base_config.device,
-            cuda_visible_devices=base_config.cuda_visible_devices,
-            dry_run=base_config.dry_run,
-            attack_pkl=base_config.attack_pkl,
-            target_test_pkl=base_config.target_test_pkl,
-            validation_pkl=base_config.validation_pkl,
-            weight_prior_json=base_config.weight_prior_json,
-            weight_top_k_edges=base_config.weight_top_k_edges,
-            weight_min_edge_weight=base_config.weight_min_edge_weight,
-            weight_floor=base_config.weight_floor,
-            weight_power=base_config.weight_power,
-        )
-        payload = run_smartgen_anomaly_experiment(config)
-        summary_rows.append(summarize_smartgen_payload(payload, slug=slug))
-    write_smartgen_sweep_summary(summary_rows, base_config.out_dir)
-    return summary_rows

@@ -210,7 +210,7 @@ def format_causal_hints_for_prompt(payload: Mapping[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "Use these patterns as causal generation guidance only; keep the target context and the original SmartGen GSS hints authoritative when they provide stronger evidence.",
+            "Use these patterns as causal generation guidance only; keep the target context and the original Gen GSS hints authoritative when they provide stronger evidence.",
             "",
         ]
     )

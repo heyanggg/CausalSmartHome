@@ -55,7 +55,7 @@ def apply_target_distribution_guard(
     """Suppress or downweight causal edges whose endpoints are overused.
 
     The guard is not a new causal discovery method.  It protects a source-context
-    causal relation prior before moving it into target-context SmartGen guidance.
+    causal relation prior before moving it into target-context Gen guidance.
     """
 
     observed = _normalize_distribution(generated_or_prompt_distribution)

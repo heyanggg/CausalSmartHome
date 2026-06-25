@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Sequence
-import sys
 import numpy as np
 
 from .causal_prior import GradientCausalMiner, CausalPrior
@@ -10,11 +8,6 @@ from .causal_prior import GradientCausalMiner, CausalPrior
 
 class CausalRelationAdapter:
     """Adapter for the compact causal-relation prior miner."""
-
-    def __init__(self, causal_relation_root: str | None = None) -> None:
-        self.causal_relation_root = Path(causal_relation_root).resolve() if causal_relation_root else None
-        if self.causal_relation_root:
-            sys.path.insert(0, str(self.causal_relation_root))
 
     def mine_event_prior(
         self,

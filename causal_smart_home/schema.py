@@ -16,7 +16,7 @@ class BehaviorEvent:
 
     The original Gen numeric format stores each behavior as
     [day, hour_slot, device_id, action_id], where hour_slot usually denotes a
-    3-hour bin. Textual SmartGen outputs can be converted to the same logical
+    3-hour bin. Textual Gen outputs can be converted to the same logical
     object by filling names instead of ids.
     """
 
