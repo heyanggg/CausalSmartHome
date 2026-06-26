@@ -36,12 +36,12 @@ proposed_causal_gss_codex_causal_tof
 Historical proposed-method names are normalized to this Codex method name by
 the summary script.
 
-## Current SP Results
+## Current Completed Results
 
-The completed SP-ST / SP-spring, SP-TT / SP-night, and SP-NT / SP-multiple GPU runs are stored
-locally under:
+The completed GPU runs are stored locally under:
 
 ```text
+outputs/main_experiment/fr_st/
 outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
@@ -53,6 +53,9 @@ average table, and do not report deltas against Gen.
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| fr | spring | 2024 | 0.861386 | 0.956522 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
+| fr | spring | 2025 | 0.861386 | 0.814815 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
+| fr | spring | 2026 | 0.861386 | 0.956522 | 0.983240 | 0.967033 | 1.000000 | 0.034091 | cuda |
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
@@ -124,6 +127,14 @@ the experiment to CPU fallback.
 - Causal-TOF keeps downweighted edges in the audit fields, but does not count
   `guard_action=downweight` edges in the causal-violation penalty by default.
   Use `--penalize-downweighted-edges` only for diagnostics.
+- FR-spring target normal data contains Gen legacy `Other + None:location`
+  rows. The Codex validator allows this original-format pairing; replacing it
+  with dictionary-pure `Other:*` actions leaves many target normals uncovered
+  and raises false positives.
+- For FR-spring, Causal-TOF should use the default weight mode. Seed2025 needs
+  a larger 200-row pre-TOF generation to stabilize the spring 80/20 validation
+  split; final pre-TOF counts are 125 / 200 / 200 for seeds 2024 / 2025 / 2026,
+  Gen TOF keeps 117 / 188 / 183 rows, and Causal-TOF keeps the same row counts.
 - In SP-multiple, SmartGen's own gpt-4o synthetic source has 100 raw rows
   before TOF/filtering, but its downstream AD baseline uses the full filtered
   multiple-context synthetic set for both training and threshold calibration

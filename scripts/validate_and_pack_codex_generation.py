@@ -150,8 +150,9 @@ def validate_flat(flat: Sequence[int], vocab: Mapping[str, Any], expected_length
             reasons.append(f"illegal_device_id@event_{event_index}:{device}")
         if action not in legal_actions:
             reasons.append(f"illegal_action_id@event_{event_index}:{action}")
-        expected_device = action_to_device.get(action)
-        if expected_device is not None and device in legal_devices and expected_device != device:
+        allowed_devices = vocab["action_to_allowed_devices"].get(action)
+        if allowed_devices is not None and device in legal_devices and device not in allowed_devices:
+            expected_device = action_to_device.get(action)
             reasons.append(f"device_action_mismatch@event_{event_index}:device={device},action={action},expected_device={expected_device}")
     return reasons
 
@@ -162,6 +163,7 @@ def load_vocab(path: Path, dataset: str) -> dict[str, Any]:
     device_name_to_id = {str(k): int(v) for k, v in payload[f"{prefix}_devices_dict"].items()}
     action_name_to_id = {str(k): int(v) for k, v in payload[f"{prefix}_actions"].items()}
     action_to_device: dict[int, int] = {}
+    action_to_allowed_devices: dict[int, set[int]] = {}
     action_by_device: dict[int, set[int]] = {}
     for action_name, action_id in action_name_to_id.items():
         device_name = action_name.split(":", 1)[0]
@@ -169,11 +171,18 @@ def load_vocab(path: Path, dataset: str) -> dict[str, Any]:
             continue
         device_id = int(device_name_to_id[device_name])
         action_to_device[int(action_id)] = device_id
+        allowed_devices = {device_id}
+        if device_name == "None" and "Other" in device_name_to_id:
+            # Gen's legacy FR/SP/US flattened data uses Other + None:location
+            # for location rows. Treat that original-format pair as legal.
+            allowed_devices.add(int(device_name_to_id["Other"]))
+        action_to_allowed_devices[int(action_id)] = allowed_devices
         action_by_device.setdefault(device_id, set()).add(int(action_id))
     return {
         "legal_devices": set(device_name_to_id.values()),
         "legal_actions": set(action_name_to_id.values()),
         "action_to_device": action_to_device,
+        "action_to_allowed_devices": action_to_allowed_devices,
         "action_by_device": {key: sorted(value) for key, value in action_by_device.items()},
     }
 

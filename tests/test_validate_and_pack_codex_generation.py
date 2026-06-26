@@ -113,3 +113,58 @@ def test_validate_and_pack_codex_generation_rejects_mismatch(tmp_path, monkeypat
     report = json.loads(validation_report.read_text(encoding="utf-8"))
     assert report["status"] == "invalid"
     assert "device_action_mismatch" in report["invalid_sequences"][0]["reasons"][0]
+
+
+def test_validate_and_pack_codex_generation_allows_legacy_other_none_location(tmp_path, monkeypatch):
+    dictionary_py = tmp_path / "dictionary.py"
+    dictionary_py.write_text(
+        "\n".join(
+            [
+                "fr_devices_dict = {'None': 17, 'Other': 18}",
+                "fr_actions = {'None:location': 96, 'Other:notification': 106}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    jsonl = tmp_path / "generated.jsonl"
+    jsonl.write_text(
+        json.dumps({"sequence_id": "legacy", "sequence": [1, 0, 18, 96]}) + "\n",
+        encoding="utf-8",
+    )
+    out_pkl = tmp_path / "generated.pkl"
+    validation_report = tmp_path / "validation_report.json"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "validate_and_pack_codex_generation.py",
+            "--input-jsonl",
+            str(jsonl),
+            "--out-pkl",
+            str(out_pkl),
+            "--out-validation-report",
+            str(validation_report),
+            "--out-generation-report",
+            str(tmp_path / "generation_report.json"),
+            "--dictionary-py",
+            str(dictionary_py),
+            "--dataset",
+            "fr",
+            "--scenario",
+            "st",
+            "--scenario-key",
+            "fr_st",
+            "--seed",
+            "2024",
+            "--expected-count",
+            "1",
+            "--expected-length",
+            "4",
+        ],
+    )
+
+    main()
+
+    assert pickle.loads(out_pkl.read_bytes()) == [[1, 0, 18, 96]]
+    assert json.loads(validation_report.read_text(encoding="utf-8"))["status"] == "valid"

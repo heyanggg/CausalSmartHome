@@ -54,10 +54,14 @@ Codex 名称。
 - proposed precision / recall / FPR
 - device
 
-当前已完成的 SP-ST / SP-spring、SP-TT / SP-night 与 SP-NT / SP-multiple 结果：
+当前已完成的 FR-ST / FR-spring、SP-ST / SP-spring、SP-TT / SP-night 与
+SP-NT / SP-multiple 结果：
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| fr | spring | 2024 | 0.861386 | 0.956522 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
+| fr | spring | 2025 | 0.861386 | 0.814815 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
+| fr | spring | 2026 | 0.861386 | 0.956522 | 0.983240 | 0.967033 | 1.000000 | 0.034091 | cuda |
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
@@ -71,6 +75,7 @@ Codex 名称。
 本地结果位置：
 
 ```text
+outputs/main_experiment/fr_st/
 outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
@@ -87,6 +92,24 @@ SP-night / Gen 原 synthetic 的 5-13 event 变长正常行为后恢复到 Gen p
 若某个 night seed 的 validation split 不稳定，可增加 Codex 生成量再经过 Gen TOF 与
 Causal-TOF，例如 `sp_tt` seed2026 使用 100 条 pre-TOF 生成，Gen TOF 后 90 条进入
 downstream AD。
+
+FR-spring 的坑和 SP 不一样。2026-06-27 扩展 `fr_st` 时，先按字典严格合法把
+`Other + None:location` 改成 `Other:notification` / `Other:switch on`，seed2024
+FPR 仍偏高。逐样本 loss 诊断发现 false positives 主要来自 target normal 里的
+`Other + None:location`、`AirConditioner + Other` 和短 AC-on 行为。Gen 原始 flattened
+数据本身使用 `Other + None:location` 作为 legacy 正常格式，因此
+`scripts/validate_and_pack_codex_generation.py` 已允许 `Other + None:*` 组合。生成恢复
+该格式后，seed2024 ablation F1 从 0.884422 提升到 0.956522。
+
+FR-spring 正式生成规则：匹配 target test 的 1-9 event 短序列分布，不生成 Heater
+normal，因为本格 attack 是 Heater 注入；主体覆盖 AirConditioner / Blind /
+Television / Other / RobotCleaner / Camera，少量 AirPurifier / Fan。seed2024 使用
+125 条 pre-TOF 已稳定；seed2025 和 seed2026 需要 200 条 pre-TOF 才能稳定 80/20
+validation split。Gen TOF 后条数为 117 / 188 / 183。
+
+FR-spring 的 Causal-TOF 使用默认 `mode=weight`，不是 SP-multiple 的 filter 模式。
+`penalize_downweighted_edges=false` 保持默认。最终 Causal-TOF 后条数保持
+117 / 188 / 183，proposed 三 seed F1 为 0.977778 / 0.977778 / 0.983240。
 
 SP-multiple 也不能照搬 SP-spring 或 SP-night。2026-06-26 首轮 `sp_nt`
 结果偏低后重新排查，先确认 SmartGen 原始 SP-multiple gpt-4o synthetic 是 100 条
