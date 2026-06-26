@@ -54,7 +54,7 @@ Codex 名称。
 - proposed precision / recall / FPR
 - device
 
-当前已完成的 SP-ST / SP-spring 与 SP-TT / SP-night 结果：
+当前已完成的 SP-ST / SP-spring、SP-TT / SP-night 与 SP-NT / SP-multiple 结果：
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -64,12 +64,16 @@ Codex 名称。
 | sp | night | 2024 | 0.962482 | 0.786219 | 0.962482 | 0.927678 | 1.000000 | 0.077960 | cuda |
 | sp | night | 2025 | 0.962482 | 0.962482 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
 | sp | night | 2026 | 0.962482 | 0.841575 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
+| sp | multiple | 2024 | 0.793970 | 0.800000 | 0.806122 | 0.675214 | 1.000000 | 0.481013 | cuda |
+| sp | multiple | 2025 | 0.793970 | 0.763285 | 0.804071 | 0.672340 | 1.000000 | 0.487342 | cuda |
+| sp | multiple | 2026 | 0.793970 | 0.818653 | 0.800000 | 0.666667 | 1.000000 | 0.500000 | cuda |
 
 本地结果位置：
 
 ```text
 outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
+outputs/main_experiment/sp_nt/
 outputs/main_experiment/summary/
 ```
 
@@ -83,6 +87,18 @@ SP-night / Gen 原 synthetic 的 5-13 event 变长正常行为后恢复到 Gen p
 若某个 night seed 的 validation split 不稳定，可增加 Codex 生成量再经过 Gen TOF 与
 Causal-TOF，例如 `sp_tt` seed2026 使用 100 条 pre-TOF 生成，Gen TOF 后 90 条进入
 downstream AD。
+
+SP-multiple 也不能照搬 SP-spring 或 SP-night。2026-06-26 扩展 `sp_nt`
+时先按 target normal 分布加入 Television/Fan/NetworkAudio/Projector 等边缘设备，
+downstream AD 退化到 F1=0。定位原因是 Gen 的 multiple AD dataset 只使用
+`device_id`，而 SP-multiple attack 是 Television-only；若 validation split 中的
+rare/attack-adjacent 设备把 99th percentile threshold 抬高，TV attack loss 会落在
+阈值下方，recall 直接变成 0。稳定规则是生成 100 条 pre-TOF normal sequences，
+长度按 3-7 events 变长，主体设备限制在 Refrigerator / Light / Dryer /
+AirConditioner，少量 Washer / GarageDoor 支撑多设备场景，不生成 TV/Fan/
+NetworkAudio 这类会污染 validation 阈值的 rare/attack-adjacent normal 行为。
+本次 `sp_nt` Gen TOF 后三 seed 条数为 92 / 98 / 93，Causal-TOF 默认不惩罚
+downweighted edges，输出条数保持 92 / 98 / 93。
 
 Gen 原论文/项目的异常检测参考 F1：
 
