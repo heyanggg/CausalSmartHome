@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--method", default="SPPC")
     parser.add_argument("--model", default="gpt-4o")
     parser.add_argument("--threshold", help="Gen threshold string; defaults to the Gen threshold for dataset/env.")
-    parser.add_argument("--out-dir", type=Path, help="Defaults to outputs/main_experiment/gen_original_tof/{dataset}_{scenario}/seed{seed}.")
+    parser.add_argument("--out-dir", type=Path, help="Defaults to outputs/main_experiment/{dataset}_{scenario}/seed{seed}/gen_original_tof.")
     parser.add_argument("--out-pkl", type=Path, help="Defaults to <out-dir>/gen_tof.pkl.")
     parser.add_argument("--cuda-visible-devices", default="0")
     parser.add_argument("--dry-run", action="store_true", help="Copy input to output and record that original TOF was not executed.")
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    out_dir = args.out_dir or (REPO_ROOT / "outputs" / "main_experiment" / "gen_original_tof" / f"{args.dataset}_{args.scenario}" / f"seed{args.seed}")
+    out_dir = args.out_dir or (REPO_ROOT / "outputs" / "main_experiment" / f"{args.dataset}_{args.scenario}" / f"seed{args.seed}" / "gen_original_tof")
     out_pkl = args.out_pkl or (out_dir / "gen_tof.pkl")
     report = run_gen_original_tof(
         GenOriginalTOFConfig(

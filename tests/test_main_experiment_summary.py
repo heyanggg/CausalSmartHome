@@ -60,12 +60,6 @@ def test_main_summary_collects_per_seed_rows_only(tmp_path):
     assert not (out_dir / "main_experiment_seed_deltas.json").exists()
 
 
-def test_main_summary_maps_legacy_gpt55_variant_to_codex(tmp_path):
-    _write_metrics(tmp_path, "proposed_causal_gss_gpt55_causal_tof", 2024, 0.80)
-    rows = collect_per_seed_rows(tmp_path)
-    assert rows[0]["variant"] == "proposed_causal_gss_codex_causal_tof"
-
-
 def test_main_summary_ignores_removed_variants(tmp_path):
     _write_metrics(tmp_path, "removed_legacy_variant", 2024, 0.60)
     _write_metrics(tmp_path, "ablation_no_causal_tof", 2024, 0.75)

@@ -49,17 +49,12 @@ METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
 KEPT_VARIANTS = {
     "ablation_no_causal_tof",
     "proposed_causal_gss_codex_causal_tof",
-    "proposed_causal_gss_gpt55_causal_tof",
-}
-
-VARIANT_ALIASES = {
-    "proposed_causal_gss_gpt55_causal_tof": "proposed_causal_gss_codex_causal_tof",
 }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Summarize the current main experiment downstream AD results.")
-    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "downstream_ad")
+    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "main_experiment")
     parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "summary")
     parser.add_argument("--metrics-glob", default="**/normalized_metrics.json")
     return parser.parse_args()
@@ -112,7 +107,6 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
     row["seed"] = _as_int(row.get("seed"))
     row["metrics_path"] = row.get("metrics_path") or str(metrics_path.resolve())
     row["run_dir"] = row.get("run_dir") or str(metrics_path.parent.resolve())
-    row["variant"] = VARIANT_ALIASES.get(str(row.get("variant")), row.get("variant"))
     if not row.get("input_pkl"):
         row["input_pkl"] = payload.get("synthetic_pkl", "")
     for key in [

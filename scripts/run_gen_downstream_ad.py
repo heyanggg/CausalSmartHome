@@ -30,13 +30,11 @@ from causal_smart_home.gen_downstream_ad import (
 GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
 
 PROPOSED_VARIANT = "proposed_causal_gss_codex_causal_tof"
-LEGACY_PROPOSED_VARIANT = "proposed_causal_gss_gpt55_causal_tof"
 ABLATION_VARIANT = "ablation_no_causal_tof"
 
 VARIANTS = {
     ABLATION_VARIANT,
     PROPOSED_VARIANT,
-    LEGACY_PROPOSED_VARIANT,
 }
 
 
@@ -158,12 +156,6 @@ def generator_for_variant(variant: str) -> str:
     return "codex_generation"
 
 
-def canonical_variant(variant: str) -> str:
-    if variant == LEGACY_PROPOSED_VARIANT:
-        return PROPOSED_VARIANT
-    return variant
-
-
 def read_generation_provenance(path: Path | None) -> dict[str, Any]:
     if path is None:
         return {}
@@ -190,7 +182,6 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
 
 
 def input_stage_for_variant(variant: str) -> str:
-    variant = canonical_variant(variant)
     if variant == ABLATION_VARIANT:
         return "gen_original_tof"
     if variant == PROPOSED_VARIANT:
@@ -199,15 +190,15 @@ def input_stage_for_variant(variant: str) -> str:
 
 
 def used_gen_original_tof_for_variant(variant: str) -> bool:
-    return variant in VARIANTS
+    return variant in {ABLATION_VARIANT, PROPOSED_VARIANT}
 
 
 def used_causal_tof_for_variant(variant: str) -> bool:
-    return canonical_variant(variant) == PROPOSED_VARIANT
+    return variant == PROPOSED_VARIANT
 
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    variant = canonical_variant(args.variant)
+    variant = args.variant
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
     threshold_percentage = (
         args.threshold_percentage
@@ -368,15 +359,14 @@ def main() -> None:
         "dataset": args.dataset,
         "scenario": args.scenario,
         "gen_env": gen_env(args.scenario),
-        "variant": canonical_variant(args.variant),
-        "requested_variant": args.variant,
+        "variant": args.variant,
         "seed": args.seed,
         "paths": {key: str(path) for key, path in paths.items()},
     }
     (out_dir / "input_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
-    variant = canonical_variant(args.variant)
+    variant = args.variant
     config_payload = {
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "gen_entrypoint": str((args.gen_root / "anomaly_detection_pipeline" / "models1.py").resolve()),
@@ -404,7 +394,7 @@ def main() -> None:
             env=gen_env(args.scenario),
             synthetic_pkl=args.generated_pkl.resolve(),
             out_dir=out_dir,
-            tag=f"{args.dataset}_{args.scenario}_{canonical_variant(args.variant)}_seed{args.seed}",
+            tag=f"{args.dataset}_{args.scenario}_{args.variant}_seed{args.seed}",
             epochs=args.epochs,
             seed=args.seed,
             split_ratio=args.split_ratio,

@@ -41,8 +41,8 @@ the summary script.
 The completed SP-ST / SP-spring GPU rerun is stored locally under:
 
 ```text
-outputs/main_experiment_gpu_fix/sp_st/
-outputs/main_experiment_gpu_fix/sp_st/summary_standard/
+outputs/main_experiment/sp_st/
+outputs/main_experiment/summary/
 ```
 
 Main results must be read seed by seed. Do not replace this table with an
@@ -123,7 +123,7 @@ Run from the project root:
 ```bash
 pytest -q
 python scripts/check_gen_main_data.py
-csh summarize --runs-root outputs/main_experiment_gpu_fix/sp_st --out-dir outputs/main_experiment_gpu_fix/sp_st/summary_standard
+csh summarize --runs-root outputs/main_experiment --out-dir outputs/main_experiment/summary
 ```
 
 `scripts/check_gen_main_data.py` verifies the local FR/SP/US x

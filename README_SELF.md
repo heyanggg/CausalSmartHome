@@ -65,8 +65,8 @@ Codex 名称。
 本地结果位置：
 
 ```text
-outputs/main_experiment_gpu_fix/sp_st/
-outputs/main_experiment_gpu_fix/sp_st/summary_standard/
+outputs/main_experiment/sp_st/
+outputs/main_experiment/summary/
 ```
 
 临时诊断目录如 `*_beta0`、`*_beta005`、`*_beta01` 只用于定位问题，不能进入正式

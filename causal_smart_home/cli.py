@@ -17,7 +17,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     summarize = subparsers.add_parser("summarize", help="write per-seed downstream AD summary files")
-    summarize.add_argument("--runs-root", type=Path, default=PROJECT_ROOT / "outputs" / "main_experiment" / "downstream_ad")
+    summarize.add_argument("--runs-root", type=Path, default=PROJECT_ROOT / "outputs" / "main_experiment")
     summarize.add_argument("--out-dir", type=Path, default=PROJECT_ROOT / "outputs" / "main_experiment" / "summary")
     summarize.add_argument("--metrics-glob", default="**/normalized_metrics.json")
     summarize.set_defaults(func=_summarize_command)
