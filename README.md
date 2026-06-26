@@ -36,12 +36,14 @@ proposed_causal_gss_codex_causal_tof
 Historical proposed-method names are normalized to this Codex method name by
 the summary script.
 
-## Current SP-ST Results
+## Current SP Results
 
-The completed SP-ST / SP-spring GPU rerun is stored locally under:
+The completed SP-ST / SP-spring and SP-TT / SP-night GPU runs are stored
+locally under:
 
 ```text
 outputs/main_experiment/sp_st/
+outputs/main_experiment/sp_tt/
 outputs/main_experiment/summary/
 ```
 
@@ -53,6 +55,9 @@ average table, and do not report deltas against Gen.
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
+| sp | night | 2024 | 0.962482 | 0.786219 | 0.962482 | 0.927678 | 1.000000 | 0.077960 | cuda |
+| sp | night | 2025 | 0.962482 | 0.962482 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
+| sp | night | 2026 | 0.962482 | 0.841575 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
 
 Gen paper/project anomaly-detection reference scores used for parallel
 comparison:

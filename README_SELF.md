@@ -54,24 +54,35 @@ Codex 名称。
 - proposed precision / recall / FPR
 - device
 
-当前已完成的 SP-ST / SP-spring 结果：
+当前已完成的 SP-ST / SP-spring 与 SP-TT / SP-night 结果：
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
+| sp | night | 2024 | 0.962482 | 0.786219 | 0.962482 | 0.927678 | 1.000000 | 0.077960 | cuda |
+| sp | night | 2025 | 0.962482 | 0.962482 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
+| sp | night | 2026 | 0.962482 | 0.841575 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
 
 本地结果位置：
 
 ```text
 outputs/main_experiment/sp_st/
+outputs/main_experiment/sp_tt/
 outputs/main_experiment/summary/
 ```
 
 临时诊断目录如 `*_beta0`、`*_beta005`、`*_beta01` 只用于定位问题，不能进入正式
 summary。`scripts/summarize_main_experiment.py` 已改成只输出 per-seed 表，不再生成
 aggregate 或 seed-delta 文件。
+
+SP-night 不能照搬 SP-spring 的 4-event 短序列生成。2026-06-26 扩展 `sp_tt`
+时先用 16-int 固定短序列，downstream AD 退化到 F1 约 0.72；改为匹配
+SP-night / Gen 原 synthetic 的 5-13 event 变长正常行为后恢复到 Gen paper 对齐区间。
+若某个 night seed 的 validation split 不稳定，可增加 Codex 生成量再经过 Gen TOF 与
+Causal-TOF，例如 `sp_tt` seed2026 使用 100 条 pre-TOF 生成，Gen TOF 后 90 条进入
+downstream AD。
 
 Gen 原论文/项目的异常检测参考 F1：
 

@@ -119,7 +119,7 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 
 
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
-    variant = canonical_variant(args.variant)
+    variant = args.variant
     current_len = _pickle_len(args.generated_pkl)
     pre_tof_len = _pickle_len(args.pre_tof_pkl)
     gen_tof_len = _pickle_len(args.gen_tof_pkl)
