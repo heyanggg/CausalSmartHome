@@ -423,6 +423,35 @@ def _prepare_split(config: GenDownstreamADRunConfig, train_pkl: Path, vld_pkl: P
     return len(train), len(vld)
 
 
+def _prepare_train_validation_files(
+    config: GenDownstreamADRunConfig,
+    train_pkl: Path,
+    vld_pkl: Path,
+) -> tuple[Path, Path, Path, int, int, int, str]:
+    if config.env == "multiple":
+        # SmartGen's original downstream AD uses the full filtered synthetic
+        # multiple-context set for both training and threshold calibration.
+        # Spring/night keep the generated 80/20 split path below.
+        train_path = config.synthetic_pkl.resolve()
+        threshold_vld = (config.validation_pkl or config.synthetic_pkl).resolve()
+        size = len(load_pickle(train_path))
+        threshold_vld_size = len(load_pickle(threshold_vld)) if threshold_vld.exists() else 0
+        return (
+            train_path,
+            threshold_vld,
+            threshold_vld,
+            size,
+            threshold_vld_size,
+            threshold_vld_size,
+            "smartgen_multiple_full_synthetic_train_and_validation",
+        )
+
+    train_size, vld_size = _prepare_split(config, train_pkl, vld_pkl)
+    threshold_vld = (config.validation_pkl or vld_pkl).resolve()
+    threshold_vld_size = len(load_pickle(threshold_vld)) if threshold_vld.exists() else vld_size
+    return train_pkl, vld_pkl, threshold_vld, train_size, vld_size, threshold_vld_size, "generated_split_train_validation"
+
+
 def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[str, Any]:
     if config.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = config.cuda_visible_devices
@@ -444,10 +473,19 @@ def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[s
     result_path = out_dir / f"{config.tag}_gen_downstream_ad_eval.json"
 
     synthetic_data = load_pickle(config.synthetic_pkl)
-    train_size, vld_size = _prepare_split(config, train_pkl, vld_pkl)
-
-    threshold_vld_pkl = (config.validation_pkl or vld_pkl).resolve()
-    threshold_vld_size = len(load_pickle(threshold_vld_pkl)) if threshold_vld_pkl.exists() else None
+    (
+        train_pkl_for_run,
+        vld_pkl_for_payload,
+        threshold_vld_pkl,
+        train_size,
+        vld_size,
+        threshold_vld_size,
+        training_protocol,
+    ) = _prepare_train_validation_files(
+        config,
+        train_pkl,
+        vld_pkl,
+    )
 
     payload: dict[str, Any] = {
         "tag": config.tag,
@@ -462,10 +500,11 @@ def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[s
         "requested_device": config.device,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "dry_run": config.dry_run,
+        "training_protocol": training_protocol,
         "synthetic_pkl": str(config.synthetic_pkl.resolve()),
         "synthetic_size": len(synthetic_data),
-        "train_pkl": str(train_pkl),
-        "vld_pkl": str(vld_pkl),
+        "train_pkl": str(train_pkl_for_run),
+        "vld_pkl": str(vld_pkl_for_payload),
         "threshold_vld_pkl": str(threshold_vld_pkl),
         "train_size": train_size,
         "vld_size": vld_size,
@@ -489,7 +528,7 @@ def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[s
         config.env,
         vocab_size,
         config.epochs,
-        str(train_pkl),
+        str(train_pkl_for_run),
         str(model_path),
         seq_len,
         device,

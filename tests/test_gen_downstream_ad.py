@@ -91,3 +91,36 @@ def test_gen_anomaly_dry_run_writes_payload_and_split(tmp_path):
     saved = json.loads((tmp_path / "out" / "dry_gen_downstream_ad_eval.json").read_text())
     assert saved["dry_run"] is True
     assert saved["threshold_vld_pkl"] == str(validation.resolve())
+
+
+def test_gen_multiple_dry_run_uses_full_synthetic_for_train_and_validation(tmp_path):
+    synthetic = tmp_path / "synthetic.pkl"
+    _dump(synthetic, [[i] * 4 for i in range(5)])
+    attack = tmp_path / "attack.pkl"
+    target = tmp_path / "target.pkl"
+    _dump(attack, [([1, 2, 3, 4], 1)])
+    _dump(target, [[1, 2, 3, 4]])
+
+    config = GenDownstreamADRunConfig(
+        gen_root=tmp_path,
+        dataset="sp",
+        env="multiple",
+        synthetic_pkl=synthetic,
+        out_dir=tmp_path / "out",
+        tag="dry_multiple",
+        cuda_visible_devices="0",
+        dry_run=True,
+        attack_pkl=attack,
+        target_test_pkl=target,
+    )
+
+    payload = run_gen_downstream_ad_experiment(config)
+
+    assert payload["training_protocol"] == "smartgen_multiple_full_synthetic_train_and_validation"
+    assert payload["train_size"] == 5
+    assert payload["vld_size"] == 5
+    assert payload["threshold_vld_size"] == 5
+    assert payload["train_pkl"] == str(synthetic.resolve())
+    assert payload["threshold_vld_pkl"] == str(synthetic.resolve())
+    assert not (tmp_path / "out" / "dry_multiple_train.pkl").exists()
+    assert not (tmp_path / "out" / "dry_multiple_vld.pkl").exists()

@@ -64,9 +64,9 @@ Codex 名称。
 | sp | night | 2024 | 0.962482 | 0.786219 | 0.962482 | 0.927678 | 1.000000 | 0.077960 | cuda |
 | sp | night | 2025 | 0.962482 | 0.962482 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
 | sp | night | 2026 | 0.962482 | 0.841575 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
-| sp | multiple | 2024 | 0.793970 | 0.800000 | 0.806122 | 0.675214 | 1.000000 | 0.481013 | cuda |
-| sp | multiple | 2025 | 0.793970 | 0.763285 | 0.804071 | 0.672340 | 1.000000 | 0.487342 | cuda |
-| sp | multiple | 2026 | 0.793970 | 0.818653 | 0.800000 | 0.666667 | 1.000000 | 0.500000 | cuda |
+| sp | multiple | 2024 | 0.793970 | 0.940476 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
+| sp | multiple | 2025 | 0.793970 | 0.948949 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
+| sp | multiple | 2026 | 0.793970 | 0.943284 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
 
 本地结果位置：
 
@@ -88,17 +88,26 @@ SP-night / Gen 原 synthetic 的 5-13 event 变长正常行为后恢复到 Gen p
 Causal-TOF，例如 `sp_tt` seed2026 使用 100 条 pre-TOF 生成，Gen TOF 后 90 条进入
 downstream AD。
 
-SP-multiple 也不能照搬 SP-spring 或 SP-night。2026-06-26 扩展 `sp_nt`
-时先按 target normal 分布加入 Television/Fan/NetworkAudio/Projector 等边缘设备，
-downstream AD 退化到 F1=0。定位原因是 Gen 的 multiple AD dataset 只使用
-`device_id`，而 SP-multiple attack 是 Television-only；若 validation split 中的
-rare/attack-adjacent 设备把 99th percentile threshold 抬高，TV attack loss 会落在
-阈值下方，recall 直接变成 0。稳定规则是生成 100 条 pre-TOF normal sequences，
-长度按 3-7 events 变长，主体设备限制在 Refrigerator / Light / Dryer /
-AirConditioner，少量 Washer / GarageDoor 支撑多设备场景，不生成 TV/Fan/
-NetworkAudio 这类会污染 validation 阈值的 rare/attack-adjacent normal 行为。
-本次 `sp_nt` Gen TOF 后三 seed 条数为 92 / 98 / 93，Causal-TOF 默认不惩罚
-downweighted edges，输出条数保持 92 / 98 / 93。
+SP-multiple 也不能照搬 SP-spring 或 SP-night。2026-06-26 首轮 `sp_nt`
+结果偏低后重新排查，先确认 SmartGen 原始 SP-multiple gpt-4o synthetic 是 100 条
+raw rows，但其 filter_true 文件约为 89 条；更关键的是原始 `baseline1.py` 在
+`new_env == 'multiple'` 时把 full filtered synthetic 同时作为 train 和 validation，
+并不执行 spring/night 的 generated 80/20 split。因此
+`causal_smart_home/gen_downstream_ad.py` 已修正 multiple 训练协议为 full synthetic
+train + full synthetic threshold calibration。
+
+生成规则也做了调整：正式 `sp_nt` 使用 100 条 pre-TOF normal sequences，但不是为了
+机械凑 100，而是匹配 SP-multiple target normal 的短序列和多设备形态。当前有效规则是
+1-9 event 变长，保留 Refrigerator / Light / Dryer / AirConditioner 等主体设备，同时
+加入 Other / SmartPlug / Projector / SmartLock / GarageDoor / Washer 等 target normal
+里会造成 false positive 的稀有正常设备；Television 必须极少，因为 Gen multiple AD
+只看 `device_id` 且 attack 是 Television-only。若 TV 或 attack-adjacent 设备在
+validation 中过多，会把 99th percentile threshold 抬高，recall 可能直接崩掉。
+
+本次 `sp_nt` Gen TOF 后三 seed 条数为 97 / 100 / 100。Causal-TOF 默认仍不惩罚
+downweighted edges；但 multiple 上默认重采样会制造不利重复，正式结果改用
+`mode=filter --min-weight 0.05`，Causal-TOF 后条数为 90 / 93 / 94。最终三 seed
+proposed F1 都为 0.948949，FPR 为 0.107595。
 
 Gen 原论文/项目的异常检测参考 F1：
 

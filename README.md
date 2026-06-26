@@ -59,9 +59,9 @@ average table, and do not report deltas against Gen.
 | sp | night | 2024 | 0.962482 | 0.786219 | 0.962482 | 0.927678 | 1.000000 | 0.077960 | cuda |
 | sp | night | 2025 | 0.962482 | 0.962482 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
 | sp | night | 2026 | 0.962482 | 0.841575 | 0.962190 | 0.927639 | 0.999414 | 0.077960 | cuda |
-| sp | multiple | 2024 | 0.793970 | 0.800000 | 0.806122 | 0.675214 | 1.000000 | 0.481013 | cuda |
-| sp | multiple | 2025 | 0.793970 | 0.763285 | 0.804071 | 0.672340 | 1.000000 | 0.487342 | cuda |
-| sp | multiple | 2026 | 0.793970 | 0.818653 | 0.800000 | 0.666667 | 1.000000 | 0.500000 | cuda |
+| sp | multiple | 2024 | 0.793970 | 0.940476 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
+| sp | multiple | 2025 | 0.793970 | 0.948949 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
+| sp | multiple | 2026 | 0.793970 | 0.943284 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
 
 Gen paper/project anomaly-detection reference scores used for parallel
 comparison:
@@ -124,13 +124,21 @@ the experiment to CPU fallback.
 - Causal-TOF keeps downweighted edges in the audit fields, but does not count
   `guard_action=downweight` edges in the causal-violation penalty by default.
   Use `--penalize-downweighted-edges` only for diagnostics.
-- In SP-multiple, the Gen downstream AD model uses only `device_id` tokens and
-  the attack set is Television-only. Do not seed the generated normal
-  validation split with rare TV/Fan/NetworkAudio-style behavior; a small number
-  of such validation outliers can raise the 99th-percentile threshold enough to
-  produce zero recall. The stable SP-multiple generation rule is 100 pre-TOF
-  sequences, 3-7 events, centered on Refrigerator/Light/Dryer/AirConditioner
-  and small Washer/GarageDoor support.
+- In SP-multiple, SmartGen's own gpt-4o synthetic source has 100 raw rows
+  before TOF/filtering, but its downstream AD baseline uses the full filtered
+  multiple-context synthetic set for both training and threshold calibration
+  instead of the spring/night 80/20 generated split. Mirror that protocol.
+- SP-multiple cannot simply copy SP-spring or SP-night generation. Match the
+  multiple target-normal shape with 100 pre-TOF variable-length sequences
+  spanning short 1-9 event behavior, include rare-but-normal target devices
+  such as Other/SmartPlug/Projector/SmartLock/GarageDoor/Washer, and keep
+  Television very scarce because the attack set is Television-only under the
+  device-id AD model.
+- For SP-multiple Causal-TOF, the stable setting is filter mode with
+  `min_weight=0.05` and the default `penalize_downweighted_edges=false`. This
+  avoids harmful duplicate resampling while still removing low causal-weight
+  rows. The final SP-multiple Gen TOF counts are 97 / 100 / 100 for seeds
+  2024 / 2025 / 2026, and Causal-TOF keeps 90 / 93 / 94 rows.
 
 ## Checks
 
