@@ -2,75 +2,62 @@
 
 ## Overview
 
-CausalSmartHome is a fused Gen + GCAD project for smart-home behavior
+CausalSmartHome is a Gen + GCAD fused project for smart-home behavior
 generation and anomaly detection. The main experiment matrix follows Gen's
-anomaly-detection setup over FR/SP/US and three target contexts:
-spring, night, and multiple. The central contribution is
-causal-relation-enhanced GSS for GPT-5.5 behavior generation.
+FR/SP/US anomaly-detection setup over three target contexts:
 
-Causal-TOF is a post-TOF causal consistency enhancement component in the full
-pipeline. It is evaluated as part of the proposed method and through one
-ablation that removes this component.
+```text
+FR/SP/US x spring/night/multiple
+```
 
-## Proposed Method
-
-The proposed method is:
-
-`proposed_causal_gss_gpt55_causal_tof`
-
-It combines causal relation prior construction, target-distribution constraint,
-causal-reweighted GSS, GPT-5.5 generation, Gen original two-stage TOF,
-Causal-TOF, and Gen built-in downstream AD.
-
-The retained ablation is:
-
-`ablation_no_causal_tof`
-
-It uses the same causal-relation-enhanced GSS and GPT-5.5 generation path, then
-removes the Causal-TOF component before downstream AD.
-
-## Pipeline
+The project design is fixed as:
 
 ```text
 causal relation prior
--> target-distribution constraint
+-> target-distribution guard
 -> causal-reweighted GSS
--> GPT-5.5 generation
+-> Codex generation
 -> Gen original two-stage TOF
 -> Causal-TOF
 -> Gen built-in downstream AD
--> summary
+-> per-seed summary
 ```
 
-## Main Results
+Causal-TOF is one step of the main experiment pipeline. It is not a separate
+method. The retained ablation, `ablation_no_causal_tof`, removes this
+pipeline step only to show what the full pipeline loses without it.
 
-The currently locked completed result is the SP-ST / SP-spring three-seed cell.
-The latest GPU rerun after the Causal-TOF guard fix is stored under
-`outputs/main_experiment_gpu_fix/sp_st/summary_standard/`.
+The proposed method name used by new runs is:
 
-| method | precision mean | recall mean | f1 mean | accuracy mean | fpr mean | fnr mean |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| proposed_causal_gss_gpt55_causal_tof | 0.953861 | 0.997711 | 0.975220 | 0.974588 | 0.048535 | 0.002289 |
-| ablation_no_causal_tof | 0.840026 | 0.992216 | 0.898191 | 0.867903 | 0.256410 | 0.007784 |
+```text
+proposed_causal_gss_codex_causal_tof
+```
 
-The proposed method centers on causal-relation-enhanced GSS for GPT-5.5 behavior
-generation. On SP-ST / SP-spring, the full pipeline with Causal-TOF achieves the best
-three-seed mean performance. Removing the Causal-TOF component decreases mean
-F1 from 0.975220 to 0.898191 and increases mean FPR from 0.048535 to 0.256410.
+Historical proposed-method names are normalized to this Codex method name by
+the summary script.
 
-Per-seed SP-ST / SP-spring GPU rerun:
+## Current SP-ST Results
 
-| seed | ablation F1 | proposed F1 | proposed device |
-| --- | ---: | ---: | --- |
-| 2024 | 0.741344 | 0.965517 | cuda |
-| 2025 | 0.974565 | 0.981132 | cuda |
-| 2026 | 0.978665 | 0.979012 | cuda |
+The completed SP-ST / SP-spring GPU rerun is stored locally under:
 
-The Gen paper/project anomaly-detection reference scores are vendored under
-`outputs/reference_gen/anomaly_detection_pipeline_results/` and cover the 9
-main cells:
+```text
+outputs/main_experiment_gpu_fix/sp_st/
+outputs/main_experiment_gpu_fix/sp_st/summary_standard/
+```
 
-| dataset | target context | Gen F1 |
+Main results must be read seed by seed. Do not replace this table with an
+average table, and do not report deltas against Gen.
+
+| dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
+| sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
+| sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
+
+Gen paper/project anomaly-detection reference scores used for parallel
+comparison:
+
+| dataset | target context | Gen paper AD F1 |
 | --- | --- | ---: |
 | fr | spring | 0.861386 |
 | fr | night | 0.969944 |
@@ -82,64 +69,71 @@ main cells:
 | us | night | 0.876999 |
 | us | multiple | 0.840492 |
 
-## Reproduction
+The small Gen reference summaries are tracked under
+`outputs/reference_gen/`. Large local pkl/checkpoint/experiment artifacts are
+ignored by git.
 
-Use the frozen three-seed archive when reproducing the current main result:
+## Running The Pipeline
 
-```bash
-bash outputs/main_experiment_frozen/sp_st_gpt55_proposed_3seed_20260623/run_reproduce_from_frozen.sh
+Scenario aliases:
+
+```text
+st = spring
+tt = night
+nt = multiple
 ```
 
-The script reuses the frozen GPT-5.5 generated pkl files. It reruns Gen original
-two-stage TOF, the w/o Causal-TOF downstream AD run, Causal-TOF, the proposed
-method downstream AD run, and summary.
+Core scripts:
 
-## Reproducibility Guardrails
+```text
+scripts/build_causal_gss_prompt.py
+scripts/build_codex_generation_package.py
+scripts/validate_and_pack_codex_generation.py
+scripts/run_gen_original_tof.py
+scripts/run_causal_tof.py
+scripts/run_gen_downstream_ad.py
+scripts/summarize_main_experiment.py
+scripts/check_gen_main_data.py
+```
 
-GPU execution is required for Gen original TOF and Gen downstream AD. Do not
-silently fall back to CPU when reproducing or extending the main experiments.
-If a managed sandbox hides CUDA devices, rerun the experiment command with
-elevated GPU access instead of changing the code path to CPU.
+GPU execution is required for Gen original TOF and Gen downstream AD. Results
+must record `device = cuda` and `requested_device = cuda`. If a managed sandbox
+hides CUDA devices, rerun the experiment command with GPU access; do not change
+the experiment to CPU fallback.
 
-Causal relation weights must be normalized before sparse thresholding. The
-GCAD-style gradient weights can be very small in raw scale; thresholding before
-normalization can zero out all raw causal edges and reduce the pipeline to a
-Gen transition-only GSS.
+## Guardrails
 
-`build_causal_gss_prompt.py` defaults to adding causal edges and using
-`guard-mode=downweight`. Causal-TOF keeps downweighted edges in the score audit,
-but does not count them in the causal-violation penalty by default. This avoids
-penalizing edges whose endpoints were already marked as overused by the target
-distribution guard. Use `--penalize-downweighted-edges` only for diagnostic
-experiments.
+- Keep Causal-TOF in the proposed pipeline. It is part of the main method flow.
+- List all seed results separately. Mean/std tables are not the main result.
+- Compare against Gen paper AD scores by listing them side by side. Do not use
+  delta tables as the comparison output.
+- Normalize GCAD causal weights before sparse thresholding. Otherwise raw
+  causal edges can be zeroed out and the GSS degenerates into a transition-only
+  graph.
+- `build_causal_gss_prompt.py` should add causal edges by default and use
+  `guard-mode=downweight`.
+- Causal-TOF keeps downweighted edges in the audit fields, but does not count
+  `guard_action=downweight` edges in the causal-violation penalty by default.
+  Use `--penalize-downweighted-edges` only for diagnostics.
 
-## Quick Checks
+## Checks
 
-Run the unit tests and locked-result integrity check from the project root:
+Run from the project root:
 
 ```bash
 pytest -q
-python -m causal_smart_home.cli check-gen-data
-python -m causal_smart_home.cli check-recovery
+python scripts/check_gen_main_data.py
+csh summarize --runs-root outputs/main_experiment_gpu_fix/sp_st --out-dir outputs/main_experiment_gpu_fix/sp_st/summary_standard
 ```
 
-The package also exposes the same utilities through the `csh` console entry
-point after installation:
-
-```bash
-csh check-gen-data
-csh check-recovery
-csh summarize
-```
-
-Scenario aliases used by the scripts are `st` = spring, `tt` = night, and
-`nt` = multiple. The full Gen main data requirement can be checked with
-`python scripts/check_gen_main_data.py`.
+`scripts/check_gen_main_data.py` verifies the local FR/SP/US x
+spring/night/multiple Gen data required by the main experiments.
 
 ## Project Structure
 
 ```text
 causal_smart_home/
+  causal_prior.py
   causal_relation_adapter.py
   causal_relation_prior_source.py
   causal_gss.py
@@ -149,14 +143,13 @@ causal_smart_home/
   resources/gen_data/
 scripts/
   build_causal_gss_prompt.py
-  validate_and_pack_gpt55_generation.py
+  build_codex_generation_package.py
+  validate_and_pack_codex_generation.py
   run_gen_original_tof.py
   run_causal_tof.py
   run_gen_downstream_ad.py
   summarize_main_experiment.py
-  freeze_main_experiment.py
-outputs/main_experiment/
-outputs/main_experiment_frozen/
+  check_gen_main_data.py
 outputs/reference_gen/
 tests/
 ```

@@ -5,11 +5,9 @@ import argparse
 import csv
 import json
 import math
-import statistics
 import sys
-from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -26,7 +24,7 @@ PER_SEED_FIELDS = [
     "used_causal_tof",
     "downstream_pipeline",
     "generator",
-    "api_llm",
+    "generation_model",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
     "num_generated_after_causal_tof",
@@ -50,12 +48,13 @@ METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
 
 KEPT_VARIANTS = {
     "ablation_no_causal_tof",
+    "proposed_causal_gss_codex_causal_tof",
     "proposed_causal_gss_gpt55_causal_tof",
 }
 
-DELTA_PAIRS = [
-    ("proposed_causal_gss_gpt55_causal_tof", "ablation_no_causal_tof"),
-]
+VARIANT_ALIASES = {
+    "proposed_causal_gss_gpt55_causal_tof": "proposed_causal_gss_codex_causal_tof",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,7 +71,18 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def collect_metric_files(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[Path]:
     """Collect normalized per-run metrics."""
-    return sorted(path for path in runs_root.glob(metrics_glob) if path.is_file())
+    return sorted(path for path in runs_root.glob(metrics_glob) if path.is_file() and not is_diagnostic_metric_path(path))
+
+
+def is_diagnostic_metric_path(path: Path) -> bool:
+    parts = {part.lower() for part in path.parts}
+    name = path.parent.name.lower()
+    return (
+        "diagnostic" in parts
+        or "diagnostics" in parts
+        or "_beta" in name
+        or name.endswith("_beta0")
+    )
 
 
 def _as_float(value: Any) -> float | None:
@@ -102,12 +112,12 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
     row["seed"] = _as_int(row.get("seed"))
     row["metrics_path"] = row.get("metrics_path") or str(metrics_path.resolve())
     row["run_dir"] = row.get("run_dir") or str(metrics_path.parent.resolve())
+    row["variant"] = VARIANT_ALIASES.get(str(row.get("variant")), row.get("variant"))
     if not row.get("input_pkl"):
         row["input_pkl"] = payload.get("synthetic_pkl", "")
     for key in [
         "used_gen_original_tof",
         "used_causal_tof",
-        "api_llm",
     ]:
         value = row.get(key)
         if isinstance(value, str):
@@ -135,80 +145,6 @@ def collect_per_seed_rows(runs_root: Path, metrics_glob: str = "**/normalized_me
             rows.append(row)
     rows.sort(key=lambda r: (str(r.get("dataset")), str(r.get("scenario")), int(r.get("seed") or -1), str(r.get("variant"))))
     return rows
-
-
-def mean_std(values: list[float]) -> tuple[float | None, float | None]:
-    if not values:
-        return None, None
-    if len(values) == 1:
-        return values[0], 0.0
-    return statistics.mean(values), statistics.stdev(values)
-
-
-def build_aggregate_rows(per_seed_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
-    for row in per_seed_rows:
-        groups[(str(row.get("dataset")), str(row.get("scenario")), str(row.get("variant")))].append(row)
-    aggregate = []
-    for (dataset, scenario, variant), rows in sorted(groups.items()):
-        item: dict[str, Any] = {
-            "table_type": "aggregate_mean_std_not_replacement_for_per_seed",
-            "dataset": dataset,
-            "scenario": scenario,
-            "variant": variant,
-            "num_seeds": len({row.get("seed") for row in rows}),
-            "seeds": ",".join(str(row.get("seed")) for row in rows),
-        }
-        for metric in METRIC_FIELDS:
-            vals = [float(row[metric]) for row in rows if row.get(metric) is not None]
-            mean, std = mean_std(vals)
-            item[f"{metric}_mean"] = mean
-            item[f"{metric}_std"] = std
-        aggregate.append(item)
-    return aggregate
-
-
-def index_rows(per_seed_rows: list[dict[str, Any]]) -> dict[tuple[str, str, int, str], dict[str, Any]]:
-    indexed = {}
-    for row in per_seed_rows:
-        seed = row.get("seed")
-        if seed is None:
-            continue
-        indexed[(str(row.get("dataset")), str(row.get("scenario")), int(seed), str(row.get("variant")))] = row
-    return indexed
-
-
-def build_seed_delta_rows(per_seed_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    indexed = index_rows(per_seed_rows)
-    keys = sorted({(dataset, scenario, seed) for dataset, scenario, seed, _variant in indexed})
-    variants_present = {str(row.get("variant")) for row in per_seed_rows}
-    deltas: list[dict[str, Any]] = []
-    for dataset, scenario, seed in keys:
-        for compare_variant, base_variant in DELTA_PAIRS:
-            compare = indexed.get((dataset, scenario, seed, compare_variant))
-            base = indexed.get((dataset, scenario, seed, base_variant))
-            if not compare or not base:
-                continue
-            item: dict[str, Any] = {
-                "dataset": dataset,
-                "scenario": scenario,
-                "seed": seed,
-                "compare_variant": compare_variant,
-                "base_variant": base_variant,
-                "comparison": f"{compare_variant} vs {base_variant}",
-            }
-            for metric in METRIC_FIELDS:
-                c = compare.get(metric)
-                b = base.get(metric)
-                item[f"{metric}_compare"] = c
-                item[f"{metric}_base"] = b
-                item[f"{metric}_delta"] = (c - b) if c is not None and b is not None else None
-            deltas.append(item)
-    meta = {
-        "variants_present": sorted(variants_present),
-        "note": "Delta rows compare the proposed method against the w/o Causal-TOF ablation for each seed.",
-    }
-    return deltas, meta
 
 
 def jsonable(obj: Any) -> Any:
@@ -255,7 +191,7 @@ def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fie
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]], delta_rows: list[dict[str, Any]], delta_meta: dict[str, Any]) -> None:
+def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "main_experiment"
 
@@ -266,41 +202,15 @@ def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]], aggregate_
         "Main Experiment Gen Built-in AD Per-Seed Results",
         per_seed_rows,
         PER_SEED_FIELDS,
-        note="Each row is one seed. These rows are the primary evidence table.",
-    )
-
-    aggregate_fields = ["table_type", "dataset", "scenario", "variant", "num_seeds", "seeds"] + [f"{m}_{s}" for m in METRIC_FIELDS for s in ("mean", "std")]
-    write_csv(out_dir / f"{prefix}_aggregate.csv", aggregate_rows, aggregate_fields)
-    (out_dir / f"{prefix}_aggregate.json").write_text(json.dumps(jsonable({"rows": aggregate_rows, "note": "aggregate is mean/std only and must not replace per-seed rows"}), ensure_ascii=False, indent=2), encoding="utf-8")
-    write_markdown_table(
-        out_dir / f"{prefix}_aggregate.md",
-        "Main Experiment Gen Built-in AD Aggregate Results",
-        aggregate_rows,
-        aggregate_fields,
-        note="Aggregate rows are mean/std summaries only. Conclusions should be checked against seed-level deltas.",
-    )
-
-    delta_fields = ["dataset", "scenario", "seed", "comparison", "compare_variant", "base_variant"] + [f"{m}_{suffix}" for m in METRIC_FIELDS for suffix in ("compare", "base", "delta")]
-    write_csv(out_dir / f"{prefix}_seed_deltas.csv", delta_rows, delta_fields)
-    (out_dir / f"{prefix}_seed_deltas.json").write_text(json.dumps(jsonable({"meta": delta_meta, "rows": delta_rows}), ensure_ascii=False, indent=2), encoding="utf-8")
-    write_markdown_table(
-        out_dir / f"{prefix}_seed_deltas.md",
-        "Main Experiment Gen Built-in AD Seed-Level Deltas",
-        delta_rows,
-        delta_fields,
-        note="Deltas are compare minus base for each seed.",
+        note="Each row is one seed. This is the primary results table; do not replace it with mean/std or delta tables.",
     )
 
 
 def main() -> None:
     args = parse_args()
     per_seed = collect_per_seed_rows(args.runs_root.resolve(), args.metrics_glob)
-    aggregate = build_aggregate_rows(per_seed)
-    deltas, meta = build_seed_delta_rows(per_seed)
-    write_outputs(args.out_dir.resolve(), per_seed, aggregate, deltas, meta)
+    write_outputs(args.out_dir.resolve(), per_seed)
     print(f"per-seed rows: {len(per_seed)}")
-    print(f"aggregate rows: {len(aggregate)}")
-    print(f"seed-delta rows: {len(deltas)}")
     print(f"saved summaries: {args.out_dir.resolve()}")
 
 

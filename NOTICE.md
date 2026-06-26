@@ -1,1 +1,1 @@
-This package vendors the Gen code and SP-ST data needed to reproduce the current CausalSmartHome main experiment. Large model/data artifacts should be reviewed before public release.
+This package contains the CausalSmartHome source code and small reference summaries for the Gen + GCAD main experiment design. The local workspace may also contain large Gen data, checkpoints, PDFs, and experiment outputs required for running the full FR/SP/US x spring/night/multiple matrix; those large artifacts are intentionally excluded from git unless explicitly reviewed for release.

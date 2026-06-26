@@ -29,9 +29,14 @@ from causal_smart_home.gen_downstream_ad import (
 
 GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
 
+PROPOSED_VARIANT = "proposed_causal_gss_codex_causal_tof"
+LEGACY_PROPOSED_VARIANT = "proposed_causal_gss_gpt55_causal_tof"
+ABLATION_VARIANT = "ablation_no_causal_tof"
+
 VARIANTS = {
-    "ablation_no_causal_tof",
-    "proposed_causal_gss_gpt55_causal_tof",
+    ABLATION_VARIANT,
+    PROPOSED_VARIANT,
+    LEGACY_PROPOSED_VARIANT,
 }
 
 
@@ -116,7 +121,7 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 
 
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
-    variant = args.variant
+    variant = canonical_variant(args.variant)
     current_len = _pickle_len(args.generated_pkl)
     pre_tof_len = _pickle_len(args.pre_tof_pkl)
     gen_tof_len = _pickle_len(args.gen_tof_pkl)
@@ -125,10 +130,10 @@ def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
     before = pre_tof_len
     after_gen = gen_tof_len
     after_causal = None
-    if variant == "ablation_no_causal_tof":
+    if variant == ABLATION_VARIANT:
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_gen = current_len
-    elif variant == "proposed_causal_gss_gpt55_causal_tof":
+    elif variant == PROPOSED_VARIANT:
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_gen = after_gen if after_gen is not None else tof_report.get("num_generated_after_gen_tof")
         after_causal = current_len
@@ -150,7 +155,13 @@ def f1(payload: dict[str, Any]) -> float | None:
 
 
 def generator_for_variant(variant: str) -> str:
-    return "gpt55_generation"
+    return "codex_generation"
+
+
+def canonical_variant(variant: str) -> str:
+    if variant == LEGACY_PROPOSED_VARIANT:
+        return PROPOSED_VARIANT
+    return variant
 
 
 def read_generation_provenance(path: Path | None) -> dict[str, Any]:
@@ -171,9 +182,7 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
                 for key in (
                     "generator",
                     "generation_model",
-                    "api_llm",
                     "manual_generation",
-                    "gpt55_generation_assisted",
                 )
                 if key in payload
             }
@@ -181,9 +190,10 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
 
 
 def input_stage_for_variant(variant: str) -> str:
-    if variant == "ablation_no_causal_tof":
+    variant = canonical_variant(variant)
+    if variant == ABLATION_VARIANT:
         return "gen_original_tof"
-    if variant == "proposed_causal_gss_gpt55_causal_tof":
+    if variant == PROPOSED_VARIANT:
         return "gen_original_tof_plus_causal_tof"
     return variant
 
@@ -193,11 +203,11 @@ def used_gen_original_tof_for_variant(variant: str) -> bool:
 
 
 def used_causal_tof_for_variant(variant: str) -> bool:
-    return variant == "proposed_causal_gss_gpt55_causal_tof"
+    return canonical_variant(variant) == PROPOSED_VARIANT
 
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    variant = args.variant
+    variant = canonical_variant(args.variant)
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
     threshold_percentage = (
         args.threshold_percentage
@@ -214,10 +224,8 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "gen_env": gen_env(args.scenario),
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "generator": provenance.get("generator", generator_for_variant(variant)),
-        "generation_model": provenance.get("generation_model", "GPT-5.5"),
-        "api_llm": provenance.get("api_llm", False),
+        "generation_model": provenance.get("generation_model", "Codex"),
         "manual_generation": provenance.get("manual_generation", True),
-        "gpt55_generation_assisted": provenance.get("gpt55_generation_assisted"),
         "precision": payload.get("precision"),
         "recall": payload.get("recall"),
         "f1": f1(payload),
@@ -270,7 +278,7 @@ PER_SEED_FIELDS = [
     "used_causal_tof",
     "downstream_pipeline",
     "generator",
-    "api_llm",
+    "generation_model",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
     "num_generated_after_causal_tof",
@@ -360,24 +368,24 @@ def main() -> None:
         "dataset": args.dataset,
         "scenario": args.scenario,
         "gen_env": gen_env(args.scenario),
-        "variant": args.variant,
+        "variant": canonical_variant(args.variant),
+        "requested_variant": args.variant,
         "seed": args.seed,
         "paths": {key: str(path) for key, path in paths.items()},
     }
     (out_dir / "input_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
+    variant = canonical_variant(args.variant)
     config_payload = {
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "gen_entrypoint": str((args.gen_root / "anomaly_detection_pipeline" / "models1.py").resolve()),
-        "generator": provenance.get("generator", generator_for_variant(args.variant)),
-        "generation_model": provenance.get("generation_model", "GPT-5.5"),
-        "api_llm": provenance.get("api_llm", False),
+        "generator": provenance.get("generator", generator_for_variant(variant)),
+        "generation_model": provenance.get("generation_model", "Codex"),
         "manual_generation": provenance.get("manual_generation", True),
-        "gpt55_generation_assisted": provenance.get("gpt55_generation_assisted"),
-        "input_stage": input_stage_for_variant(args.variant),
-        "used_gen_original_tof": used_gen_original_tof_for_variant(args.variant),
-        "used_causal_tof": used_causal_tof_for_variant(args.variant),
+        "input_stage": input_stage_for_variant(variant),
+        "used_gen_original_tof": used_gen_original_tof_for_variant(variant),
+        "used_causal_tof": used_causal_tof_for_variant(variant),
         "epochs": args.epochs,
         "split_ratio": args.split_ratio,
         "device": args.device,
@@ -396,7 +404,7 @@ def main() -> None:
             env=gen_env(args.scenario),
             synthetic_pkl=args.generated_pkl.resolve(),
             out_dir=out_dir,
-            tag=f"{args.dataset}_{args.scenario}_{args.variant}_seed{args.seed}",
+            tag=f"{args.dataset}_{args.scenario}_{canonical_variant(args.variant)}_seed{args.seed}",
             epochs=args.epochs,
             seed=args.seed,
             split_ratio=args.split_ratio,

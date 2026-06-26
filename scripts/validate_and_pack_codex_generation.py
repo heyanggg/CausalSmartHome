@@ -19,7 +19,7 @@ from causal_smart_home.schema import load_numeric_sequences
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate and pack GPT-5.5 Gen flat-quadruple JSONL.")
+    parser = argparse.ArgumentParser(description="Validate and pack Codex-generated flat-quadruple JSONL.")
     parser.add_argument("--input-jsonl", required=True, type=Path)
     parser.add_argument("--out-pkl", required=True, type=Path)
     parser.add_argument("--out-validation-report", required=True, type=Path)
@@ -88,7 +88,7 @@ def main() -> None:
     }
     if status != "valid":
         write_json(args.out_validation_report, validation_report)
-        raise ValueError(f"GPT-5.5 generation validation failed: {len(invalid)} invalid rows, {len(clean_rows)} valid rows")
+        raise ValueError(f"Codex generation validation failed: {len(invalid)} invalid rows, {len(clean_rows)} valid rows")
 
     sequences = load_numeric_sequences([row["sequence"] for row in clean_rows])
     args.out_pkl.parent.mkdir(parents=True, exist_ok=True)
@@ -96,11 +96,9 @@ def main() -> None:
         pickle.dump([seq.to_flat_numeric() for seq in sequences], f)
 
     generation_report = {
-        "generator": "gpt55_generation",
-        "generation_model": "GPT-5.5",
-        "api_llm": False,
+        "generator": "codex_generation",
+        "generation_model": "Codex",
         "manual_generation": True,
-        "gpt55_generation_assisted": True,
         "num_generated": len(clean_rows),
         "dataset": args.dataset,
         "scenario": args.scenario,
@@ -117,14 +115,14 @@ def main() -> None:
         "source_pkl": resolved_or_none(args.source_pkl),
         "target_pkl": resolved_or_none(args.target_pkl),
         "notes": (
-            "Sequence content was authored by the GPT-5.5-assisted generation process from the prompt package, "
+            "Sequence content was authored by the Codex generation process from the prompt package, "
             "guarded GSS hints, causal relation prior, dictionary, and source/target distribution inspection. "
             "This script only validated and packed the authored JSONL."
         ),
     }
     write_json(args.out_validation_report, validation_report)
     write_json(args.out_generation_report, generation_report)
-    print(f"validated GPT-5.5 rows: {len(clean_rows)}")
+    print(f"validated Codex rows: {len(clean_rows)}")
     print(f"saved pkl: {args.out_pkl.resolve()}")
     print(f"saved validation report: {args.out_validation_report.resolve()}")
     print(f"saved generation report: {args.out_generation_report.resolve()}")

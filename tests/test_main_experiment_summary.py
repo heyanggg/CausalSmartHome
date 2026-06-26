@@ -1,10 +1,8 @@
 import json
-import pickle
 
 from scripts.summarize_main_experiment import (
-    build_aggregate_rows,
-    build_seed_delta_rows,
     collect_per_seed_rows,
+    write_outputs,
 )
 
 
@@ -17,15 +15,15 @@ def _write_metrics(root, variant, seed, f1, precision=0.5):
         "seed": seed,
         "variant": variant,
         "input_pkl": str(run / "input.pkl"),
-        "input_stage": "gen_original_tof_plus_causal_tof" if variant == "proposed_causal_gss_gpt55_causal_tof" else "gen_original_tof",
+        "input_stage": "gen_original_tof_plus_causal_tof" if variant == "proposed_causal_gss_codex_causal_tof" else "gen_original_tof",
         "used_gen_original_tof": True,
-        "used_causal_tof": variant == "proposed_causal_gss_gpt55_causal_tof",
+        "used_causal_tof": variant == "proposed_causal_gss_codex_causal_tof",
         "downstream_pipeline": "gen_builtin_downstream_ad",
-        "generator": "gpt55_generation",
-        "api_llm": False,
+        "generator": "codex_generation",
+        "generation_model": "Codex",
         "num_generated_before_tof": 10,
         "num_generated_after_gen_tof": 8,
-        "num_generated_after_causal_tof": 7 if variant == "proposed_causal_gss_gpt55_causal_tof" else None,
+        "num_generated_after_causal_tof": 7 if variant == "proposed_causal_gss_codex_causal_tof" else None,
         "train_size": 6,
         "validation_size": 2,
         "test_size": 5,
@@ -44,29 +42,40 @@ def _write_metrics(root, variant, seed, f1, precision=0.5):
     (run / "normalized_metrics.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_main_summary_collects_per_seed_aggregate_and_deltas(tmp_path):
+def test_main_summary_collects_per_seed_rows_only(tmp_path):
     _write_metrics(tmp_path, "ablation_no_causal_tof", 2024, 0.75)
-    _write_metrics(tmp_path, "proposed_causal_gss_gpt55_causal_tof", 2024, 0.80)
+    _write_metrics(tmp_path, "proposed_causal_gss_codex_causal_tof", 2024, 0.80)
 
     rows = collect_per_seed_rows(tmp_path)
     assert len(rows) == 2
     assert {row["variant"] for row in rows} == {
         "ablation_no_causal_tof",
-        "proposed_causal_gss_gpt55_causal_tof",
+        "proposed_causal_gss_codex_causal_tof",
     }
-    aggregate = build_aggregate_rows(rows)
-    assert all(row["table_type"] == "aggregate_mean_std_not_replacement_for_per_seed" for row in aggregate)
+    out_dir = tmp_path / "summary"
+    write_outputs(out_dir, rows)
 
-    deltas, meta = build_seed_delta_rows(rows)
-    assert meta["variants_present"] == ["ablation_no_causal_tof", "proposed_causal_gss_gpt55_causal_tof"]
-    proposed_vs_ablation = next(row for row in deltas if row["comparison"] == "proposed_causal_gss_gpt55_causal_tof vs ablation_no_causal_tof")
-    assert round(proposed_vs_ablation["f1_delta"], 6) == 0.05
+    assert (out_dir / "main_experiment_per_seed.json").exists()
+    assert not (out_dir / "main_experiment_aggregate.json").exists()
+    assert not (out_dir / "main_experiment_seed_deltas.json").exists()
+
+
+def test_main_summary_maps_legacy_gpt55_variant_to_codex(tmp_path):
+    _write_metrics(tmp_path, "proposed_causal_gss_gpt55_causal_tof", 2024, 0.80)
+    rows = collect_per_seed_rows(tmp_path)
+    assert rows[0]["variant"] == "proposed_causal_gss_codex_causal_tof"
 
 
 def test_main_summary_ignores_removed_variants(tmp_path):
     _write_metrics(tmp_path, "removed_legacy_variant", 2024, 0.60)
     _write_metrics(tmp_path, "ablation_no_causal_tof", 2024, 0.75)
     rows = collect_per_seed_rows(tmp_path)
-    deltas, meta = build_seed_delta_rows(rows)
-    assert meta["variants_present"] == ["ablation_no_causal_tof"]
-    assert len(deltas) == 0
+    assert [row["variant"] for row in rows] == ["ablation_no_causal_tof"]
+
+
+def test_main_summary_ignores_beta_diagnostics(tmp_path):
+    _write_metrics(tmp_path, "proposed_causal_gss_codex_causal_tof", 2024, 0.80)
+    _write_metrics(tmp_path, "proposed_causal_gss_codex_causal_tof_beta0", 2024, 0.10)
+    rows = collect_per_seed_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["variant"] == "proposed_causal_gss_codex_causal_tof"

@@ -5,7 +5,7 @@ import pickle
 
 import pytest
 
-from scripts.validate_and_pack_gpt55_generation import main
+from scripts.validate_and_pack_codex_generation import main
 
 
 def write_dictionary(path):
@@ -21,7 +21,7 @@ def write_dictionary(path):
     )
 
 
-def test_validate_and_pack_gpt55_generation_valid(tmp_path, monkeypatch):
+def test_validate_and_pack_codex_generation_valid(tmp_path, monkeypatch):
     dictionary_py = tmp_path / "dictionary.py"
     write_dictionary(dictionary_py)
     jsonl = tmp_path / "generated.jsonl"
@@ -36,7 +36,7 @@ def test_validate_and_pack_gpt55_generation_valid(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "sys.argv",
         [
-            "validate_and_pack_gpt55_generation.py",
+            "validate_and_pack_codex_generation.py",
             "--input-jsonl",
             str(jsonl),
             "--out-pkl",
@@ -67,14 +67,12 @@ def test_validate_and_pack_gpt55_generation_valid(tmp_path, monkeypatch):
     assert pickle.loads(out_pkl.read_bytes()) == [[1, 0, 11, 68, 1, 1, 13, 80]]
     assert json.loads(validation_report.read_text(encoding="utf-8"))["status"] == "valid"
     report = json.loads(generation_report.read_text(encoding="utf-8"))
-    assert report["generator"] == "gpt55_generation"
-    assert report["generation_model"] == "GPT-5.5"
-    assert report["api_llm"] is False
+    assert report["generator"] == "codex_generation"
+    assert report["generation_model"] == "Codex"
     assert report["manual_generation"] is True
-    assert report["gpt55_generation_assisted"] is True
 
 
-def test_validate_and_pack_gpt55_generation_rejects_mismatch(tmp_path, monkeypatch):
+def test_validate_and_pack_codex_generation_rejects_mismatch(tmp_path, monkeypatch):
     dictionary_py = tmp_path / "dictionary.py"
     write_dictionary(dictionary_py)
     jsonl = tmp_path / "generated.jsonl"
@@ -84,7 +82,7 @@ def test_validate_and_pack_gpt55_generation_rejects_mismatch(tmp_path, monkeypat
     monkeypatch.setattr(
         "sys.argv",
         [
-            "validate_and_pack_gpt55_generation.py",
+            "validate_and_pack_codex_generation.py",
             "--input-jsonl",
             str(jsonl),
             "--out-pkl",

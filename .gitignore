@@ -1,8 +1,4 @@
-# =========================
-# CausalSmartHome .gitignore
-# =========================
-
-# ---- Python cache / test cache ----
+# Python cache / test cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,14 +7,11 @@ __pycache__/
 .ruff_cache/
 .pyre/
 .cache/
-.ipynb_checkpoints/
 .coverage
 .coverage.*
 htmlcov/
-.tox/
-.nox/
 
-# ---- Virtual environments / local env files ----
+# Virtual environments / local env files
 .env
 .env.*
 !.env.example
@@ -26,16 +19,17 @@ htmlcov/
 venv/
 env/
 ENV/
+smartguard_env/
 conda-meta/
 
-# ---- Packaging / build artifacts ----
+# Packaging / build artifacts
 build/
 dist/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
 
-# ---- IDE / OS files ----
+# IDE / OS files
 .vscode/
 .idea/
 *.swp
@@ -43,7 +37,7 @@ pip-wheel-metadata/
 .DS_Store
 Thumbs.db
 
-# ---- Raw datasets / generated datasets ----
+# Large local data, model, and experiment artifacts
 data/
 dataset/
 datasets/
@@ -53,9 +47,24 @@ IoT_data/
 **/IoT_data/
 synthetic_data/
 **/synthetic_data/
-anomaly_detection_pipeline/synthetic_data/
+outputs/
+results/
+result/
+runs/
+artifacts/
+logs/
+log/
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+checkpoints/
+checkpoint/
+ckpt/
+saved_models/
+models/checkpoints/
 
-# Smart-home sequence/data files generated or consumed by experiments.
+# Binary experiment/model files
 *.pkl
 *.pickle
 *.npy
@@ -63,39 +72,19 @@ anomaly_detection_pipeline/synthetic_data/
 *.h5
 *.hdf5
 *.mat
-*.csv
-*.tsv
-
-# ---- Model checkpoints / training artifacts ----
-checkpoints/
-checkpoint/
-ckpt/
-saved_models/
-models/checkpoints/
 *.pt
 *.pth
 *.ckpt
 *.onnx
 *.joblib
 
-# ---- Experiment outputs / logs ----
-artifacts/
-outputs/
-results/
-result/
-runs/
-logs/
-log/
-wandb/
-mlruns/
-lightning_logs/
-tensorboard/
+# Tabular/log/archive outputs
+*.csv
+*.tsv
 *.log
 *_RESULT
 *_result
 *_results
-
-# ---- Temporary files / archives ----
 tmp/
 temp/
 *.tmp
@@ -105,52 +94,17 @@ temp/
 *.tgz
 *.zip
 *.7z
-core_py_projects_*.tar.gz
 
-# ---- Local notes / paper PDFs not needed in the public code repo ----
+# Local notes and papers
 论文缝合与实现.txt
 *.pdf
 
-# ---- Optional: keep placeholder files ----
+# Keep placeholder files when needed
 !.gitkeep
 
-# ---- Vendored SmartGen artifacts required for reproducibility ----
-!causal_smart_home/resources/gen_data/**/*.pkl
-!causal_smart_home/gen_core/anomaly_detection_pipeline/attack/**/*.pkl
-!causal_smart_home/gen_core/anomaly_detection_pipeline/test/**/*.pkl
-!causal_smart_home/gen_core/anomaly_detection_pipeline/synthetic_data/**/*.pkl
-!causal_smart_home/gen_core/anomaly_detection_pipeline/check_model/*.pth
-!causal_smart_home/gen_core/gen_original_tof/check_model/*.pth
-
+# Track the small Gen reference summaries used in documentation.
 !outputs/
 outputs/*
 !outputs/reference_gen/
 !outputs/reference_gen/**
-
-# large generated files / experiment artifacts
-outputs/
-runs/
-wandb/
-checkpoints/
-models/
-*.pt
-*.pth
-*.ckpt
-*.pkl
-*.pickle
-*.npy
-*.npz
-*.csv
-*.log
-*.tar
-*.tar.gz
-*.zip
-*.7z
-
-# cache / env
-__pycache__/
-.pytest_cache/
-.mypy_cache/
-.venv/
-venv/
-smartguard_env/
+!outputs/reference_gen/**/*.csv

@@ -8,10 +8,10 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build a GPT-5.5 generation package from a causal GSS artifact directory.")
+    parser = argparse.ArgumentParser(description="Build a Codex generation package from a causal GSS artifact directory.")
     parser.add_argument("--causal-gss-dir", required=True)
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--scenario", required=True, choices=["fr_st", "sp_st"])
+    parser.add_argument("--scenario", required=True, help="Scenario key such as fr_st, sp_st, or us_nt.")
     parser.add_argument("--seed", type=int, default=2024)
     return parser.parse_args()
 
@@ -37,8 +37,8 @@ def main() -> None:
         shutil.copyfile(src, out_dir / name)
 
     schema = {
-        "generator": "gpt55_generation",
-        "api_llm": False,
+        "generator": "codex_generation",
+        "generation_model": "Codex",
         "manual_generation": True,
         "scenario": args.scenario,
         "seed": args.seed,
@@ -52,16 +52,16 @@ def main() -> None:
     }
     (out_dir / "generation_schema.json").write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "generation_instruction.md").write_text(build_instruction(args.scenario), encoding="utf-8")
-    print(f"saved GPT-5.5 generation package: {out_dir}")
+    print(f"saved Codex generation package: {out_dir}")
 
 
 def build_instruction(scenario: str) -> str:
-    scenario_note = "In SP-ST, pay special attention to Television overuse." if scenario == "sp_st" else "Use FR-ST target-context normal behavior."
+    scenario_note = "In SP-ST, pay special attention to Television overuse." if scenario == "sp_st" else f"Use {scenario} target-context normal behavior."
     return "\n".join(
         [
-            "# GPT-5.5 Generation Instruction",
+            "# Codex Generation Instruction",
             "",
-            "Use GPT-5.5 as the Gen target-context behavior generator for this project.",
+            "Use Codex as the target-context behavior generator for this project.",
             "",
             "Use:",
             "1. prompt.txt",
@@ -88,9 +88,9 @@ def build_instruction(scenario: str) -> str:
             "7. Do not generate device/action IDs outside known dictionaries.",
             "8. Preserve reasonable temporal order.",
             "9. Generate normal behavior sequences, not attacks.",
-            "10. Save metadata with generator = gpt55_generation and api_llm = false.",
+            "10. Save metadata with generator = codex_generation and generation_model = Codex.",
             "",
-            "This package is the fixed GPT-5.5 generation protocol for CausalSmartHome main experiments.",
+            "This package is the fixed Codex generation protocol for CausalSmartHome main experiments.",
             "",
         ]
     )
