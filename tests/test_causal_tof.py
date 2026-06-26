@@ -15,6 +15,27 @@ def test_causal_tof_penalizes_violated_edge_and_lowers_weight():
     json.dumps(bad_score)
 
 
+def test_downweighted_edges_are_diagnostic_by_default():
+    edges = [
+        {
+            "source_device": 1,
+            "target_device": 2,
+            "guarded_causal_strength": 1.0,
+            "guard_action": "downweight",
+            "source_name": "Light",
+            "target_name": "Television",
+        }
+    ]
+    violated = [0, 0, 2, 20, 0, 1, 1, 10]
+
+    score = score_sequence_causal_tof(violated, edges, temperature=2.0)
+    penalized_score = score_sequence_causal_tof(violated, edges, temperature=2.0, penalize_downweighted_edges=True)
+
+    assert score["causal_violation"] == 0.0
+    assert score["observed_causal_violation_all_guarded_edges"] == 1.0
+    assert score["final_score"] < penalized_score["final_score"]
+
+
 def test_weighted_resample_limits_copies():
     seqs = [[0, 0, 1, 10], [0, 0, 2, 20]]
     scores = [{"sample_weight": 1.0}, {"sample_weight": 0.01}]

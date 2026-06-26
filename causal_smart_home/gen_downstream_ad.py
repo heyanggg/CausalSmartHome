@@ -12,18 +12,58 @@ import pickle
 import random
 import sys
 
-from .experiment_matrix import VOCAB_SIZES
 
+VOCAB_DIC = {"fr": 223, "sp": 235, "us": 269}
 
-VOCAB_DIC = dict(VOCAB_SIZES)
+DATASETS = tuple(VOCAB_DIC)
+ENVIRONMENTS = ("spring", "night", "multiple")
+ENV_BY_SCENARIO = {
+    "st": "spring",
+    "tt": "night",
+    "nt": "multiple",
+    "spring": "spring",
+    "night": "night",
+    "multiple": "multiple",
+}
+SCENARIO_BY_ENV = {"spring": "st", "night": "tt", "multiple": "nt"}
+SOURCE_ENV_BY_TARGET_ENV = {"spring": "winter", "night": "daytime", "multiple": "single"}
+ATTACK_BY_ENV = {
+    "spring": "spring_attack_heater",
+    "night": "night_attack_time",
+    "multiple": "multiple_attack_tv",
+}
 
 DEFAULT_THRESHOLDS = {
+    ("fr", "spring"): "0.918",
+    ("fr", "night"): "0.92",
+    ("fr", "multiple"): "0.915",
     ("sp", "spring"): "0.915",
+    ("sp", "night"): "0.917",
+    ("sp", "multiple"): "0.915",
+    ("us", "spring"): "0.905",
+    ("us", "night"): "0.919",
+    ("us", "multiple"): "0.913",
 }
 
 DEFAULT_THRESHOLD_PERCENTAGES = {
+    ("fr", "spring"): 95.5,
+    ("fr", "night"): 95.0,
+    ("fr", "multiple"): 99.0,
     ("sp", "spring"): 95.0,
+    ("sp", "night"): 95.0,
+    ("sp", "multiple"): 99.0,
+    ("us", "spring"): 95.0,
+    ("us", "night"): 93.0,
+    ("us", "multiple"): 99.0,
 }
+
+
+def env_for_scenario(scenario: str) -> str:
+    try:
+        return ENV_BY_SCENARIO[scenario]
+    except KeyError as exc:
+        valid = ", ".join(sorted(ENV_BY_SCENARIO))
+        raise ValueError(f"scenario must be one of: {valid}") from exc
 
 
 @dataclass(frozen=True)
@@ -50,10 +90,12 @@ class GenDownstreamADRunConfig:
 
 
 def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
-    if dataset not in VOCAB_DIC:
-        raise ValueError(f"dataset must be one of {sorted(VOCAB_DIC)}")
+    if dataset not in DATASETS:
+        raise ValueError(f"dataset must be one of: {', '.join(DATASETS)}")
+    if env not in ENVIRONMENTS:
+        raise ValueError(f"env must be one of: {', '.join(ENVIRONMENTS)}")
     pipeline = Path(gen_root).resolve() / "anomaly_detection_pipeline"
-    attack_name = f"labeled_{dataset}_{env}_attack_heater.pkl"
+    attack_name = f"labeled_{dataset}_{ATTACK_BY_ENV[env]}.pkl"
     return {
         "pipeline_root": pipeline,
         "attack_pkl": pipeline / "attack" / dataset / attack_name,
@@ -151,13 +193,13 @@ def _pad_sequences(vocab_size: int, sequences: Sequence[Sequence[int]], length: 
 
 
 def _dataset_for_env(models_module, env: str):
-    if env in {"spring", "winter"}:
+    if env == "spring":
         return models_module.TimeSeriesDataset2
-    if env in {"nighttime", "night", "daytime", "day"}:
+    if env == "night":
         return models_module.TimeSeriesDataset3
-    if env in {"multiple", "multi", "single"}:
+    if env == "multiple":
         return models_module.TimeSeriesDataset4
-    raise ValueError(f"unsupported Gen env for downstream AD: {env}")
+    raise ValueError(f"env must be one of: {', '.join(ENVIRONMENTS)}")
 
 
 def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path, batch_size: int):
@@ -387,22 +429,12 @@ def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[s
 
     gen_root = config.gen_root.resolve()
     defaults = default_gen_paths(gen_root, config.dataset, config.env)
-    threshold = config.threshold or DEFAULT_THRESHOLDS.get((config.dataset, config.env))
-    if threshold is None:
-        raise ValueError(
-            "Gen downstream AD threshold is not configured for "
-            f"{config.dataset}-{config.env}; pass threshold in the run config for a real run."
-        )
+    threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, config.env)]
     threshold_percentage = (
         config.threshold_percentage
         if config.threshold_percentage is not None
-        else DEFAULT_THRESHOLD_PERCENTAGES.get((config.dataset, config.env))
+        else DEFAULT_THRESHOLD_PERCENTAGES[(config.dataset, config.env)]
     )
-    if threshold_percentage is None:
-        raise ValueError(
-            "Gen downstream AD threshold percentage is not configured for "
-            f"{config.dataset}-{config.env}; pass --threshold-percentage for a real run."
-        )
     out_dir = config.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 

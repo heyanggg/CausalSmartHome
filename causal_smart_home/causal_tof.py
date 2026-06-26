@@ -21,6 +21,7 @@ def score_sequence_causal_tof(
     beta_violation: float = 1.0,
     gamma_dist: float = 1.0,
     temperature: float = 2.0,
+    penalize_downweighted_edges: bool = False,
 ) -> dict:
     """Score one generated sequence for Causal-TOF soft weighting.
 
@@ -36,11 +37,16 @@ def score_sequence_causal_tof(
     satisfied_weight = 0.0
     violated_weight = 0.0
     missing_weight = 0.0
+    observed_satisfied_weight = 0.0
+    observed_violated_weight = 0.0
+    observed_missing_weight = 0.0
 
     for edge in guarded_edges:
         weight = _edge_weight(edge)
         if weight <= 0:
             continue
+        guard_action = str(edge.get("guard_action", "keep"))
+        penalize_edge = penalize_downweighted_edges or guard_action != "downweight"
         source_key = _edge_device_key(edge, "source")
         target_key = _edge_device_key(edge, "target")
         src_pos = positions.get(source_key, [])
@@ -52,24 +58,34 @@ def score_sequence_causal_tof(
             "target_name": edge.get("target_name", target_key),
             "weight": weight,
             "final_score": edge.get("final_score"),
-            "guard_action": edge.get("guard_action", "keep"),
+            "guard_action": guard_action,
+            "penalized_for_causal_violation": penalize_edge,
         }
         if not src_pos or not tgt_pos:
             row["reason"] = "missing_source" if not src_pos else "missing_target"
             missing.append(row)
-            missing_weight += weight
+            observed_missing_weight += weight
+            if penalize_edge:
+                missing_weight += weight
             continue
         if any(i < j for i in src_pos for j in tgt_pos):
             satisfied.append(row)
-            satisfied_weight += weight
+            observed_satisfied_weight += weight
+            if penalize_edge:
+                satisfied_weight += weight
         else:
             row["reason"] = "target_precedes_source_or_no_valid_order"
             violated.append(row)
-            violated_weight += weight
+            observed_violated_weight += weight
+            if penalize_edge:
+                violated_weight += weight
 
     checked_weight = satisfied_weight + violated_weight
     causal_coverage = satisfied_weight / checked_weight if checked_weight > 0 else 1.0
     causal_violation = violated_weight / checked_weight if checked_weight > 0 else 0.0
+    observed_checked_weight = observed_satisfied_weight + observed_violated_weight
+    observed_causal_coverage = observed_satisfied_weight / observed_checked_weight if observed_checked_weight > 0 else 1.0
+    observed_causal_violation = observed_violated_weight / observed_checked_weight if observed_checked_weight > 0 else 0.0
     dist_penalty = _distribution_penalty(seq, target_distribution)
     rec = 0.0 if reconstruction_loss is None else float(reconstruction_loss)
     final_score = alpha_rec * rec + beta_violation * causal_violation + gamma_dist * dist_penalty
@@ -80,6 +96,8 @@ def score_sequence_causal_tof(
         "sequence_id": seq.sequence_id,
         "causal_coverage": float(causal_coverage),
         "causal_violation": float(causal_violation),
+        "observed_causal_coverage_all_guarded_edges": float(observed_causal_coverage),
+        "observed_causal_violation_all_guarded_edges": float(observed_causal_violation),
         "distribution_penalty": float(dist_penalty),
         "reconstruction_loss": reconstruction_loss,
         "final_score": float(final_score),
@@ -89,6 +107,8 @@ def score_sequence_causal_tof(
         "missing_edges": missing,
         "checked_edge_weight": float(checked_weight),
         "missing_edge_weight": float(missing_weight),
+        "observed_checked_edge_weight_all_guarded_edges": float(observed_checked_weight),
+        "observed_missing_edge_weight_all_guarded_edges": float(observed_missing_weight),
         "decision": "weight",
     }
 

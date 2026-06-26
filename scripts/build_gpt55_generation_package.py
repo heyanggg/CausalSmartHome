@@ -4,24 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import sys
 from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from causal_smart_home.experiment_matrix import DATASETS, SCENARIOS, matrix_item, scenario_key
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a GPT-5.5 generation package from a causal GSS artifact directory.")
     parser.add_argument("--causal-gss-dir", required=True)
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--dataset", required=True, choices=DATASETS)
-    parser.add_argument("--scenario", required=True, choices=sorted(SCENARIOS))
+    parser.add_argument("--scenario", required=True, choices=["fr_st", "sp_st"])
     parser.add_argument("--seed", type=int, default=2024)
-    parser.add_argument("--matrix", default="single", choices=["single", "all"], help="Use scripts/run_main_experiment_matrix.py for --matrix all.")
     return parser.parse_args()
 
 
@@ -29,7 +20,6 @@ def main() -> None:
     args = parse_args()
     causal_gss_dir = Path(args.causal_gss_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
-    item = matrix_item(args.dataset, args.scenario)
     if not causal_gss_dir.exists():
         raise FileNotFoundError(f"--causal-gss-dir not found: {causal_gss_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -50,11 +40,7 @@ def main() -> None:
         "generator": "gpt55_generation",
         "api_llm": False,
         "manual_generation": True,
-        "dataset": args.dataset,
         "scenario": args.scenario,
-        "scenario_key": scenario_key(args.dataset, args.scenario),
-        "source_context": item.source_context,
-        "target_context": item.target_context,
         "seed": args.seed,
         "sequence_format": "flat_quadruples",
         "fields": ["day", "hour_slot", "device_id", "action_id"],
@@ -65,15 +51,12 @@ def main() -> None:
         "lambda_causal": 1.0,
     }
     (out_dir / "generation_schema.json").write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "generation_instruction.md").write_text(build_instruction(item), encoding="utf-8")
+    (out_dir / "generation_instruction.md").write_text(build_instruction(args.scenario), encoding="utf-8")
     print(f"saved GPT-5.5 generation package: {out_dir}")
 
 
-def build_instruction(item) -> str:
-    scenario_note = (
-        f"Generate {item.dataset.upper()}-{item.scenario.upper()} target-context normal behavior "
-        f"for {item.target_context}, using {item.source_context} as source-context evidence."
-    )
+def build_instruction(scenario: str) -> str:
+    scenario_note = "In SP-ST, pay special attention to Television overuse." if scenario == "sp_st" else "Use FR-ST target-context normal behavior."
     return "\n".join(
         [
             "# GPT-5.5 Generation Instruction",

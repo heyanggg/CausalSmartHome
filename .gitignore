@@ -113,3 +113,44 @@ core_py_projects_*.tar.gz
 
 # ---- Optional: keep placeholder files ----
 !.gitkeep
+
+# ---- Vendored SmartGen artifacts required for reproducibility ----
+!causal_smart_home/resources/gen_data/**/*.pkl
+!causal_smart_home/gen_core/anomaly_detection_pipeline/attack/**/*.pkl
+!causal_smart_home/gen_core/anomaly_detection_pipeline/test/**/*.pkl
+!causal_smart_home/gen_core/anomaly_detection_pipeline/synthetic_data/**/*.pkl
+!causal_smart_home/gen_core/anomaly_detection_pipeline/check_model/*.pth
+!causal_smart_home/gen_core/gen_original_tof/check_model/*.pth
+
+!outputs/
+outputs/*
+!outputs/reference_gen/
+!outputs/reference_gen/**
+
+# large generated files / experiment artifacts
+outputs/
+runs/
+wandb/
+checkpoints/
+models/
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.csv
+*.log
+*.tar
+*.tar.gz
+*.zip
+*.7z
+
+# cache / env
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+smartguard_env/

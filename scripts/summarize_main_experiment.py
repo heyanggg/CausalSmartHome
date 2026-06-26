@@ -7,30 +7,34 @@ import json
 import math
 import statistics
 import sys
+from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-from causal_smart_home.experiment_matrix import (
-    ABLATION_VARIANT,
-    PROPOSED_VARIANT,
-    REFERENCE_VARIANT,
-    SEEDS,
-    experiment_grid,
-    load_reference_baseline,
-)
-
-METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
-MAIN_NOTE = "Main baseline is SmartGen/Gen Table 3 reference, not ablation_no_causal_tof."
 
 PER_SEED_FIELDS = [
     "dataset",
     "scenario",
     "seed",
     "variant",
+    "input_pkl",
+    "input_stage",
+    "used_gen_original_tof",
+    "used_causal_tof",
+    "downstream_pipeline",
+    "generator",
+    "api_llm",
+    "num_generated_before_tof",
+    "num_generated_after_gen_tof",
+    "num_generated_after_causal_tof",
+    "train_size",
+    "validation_size",
+    "test_size",
+    "threshold",
+    "threshold_source",
     "precision",
     "recall",
     "f1",
@@ -42,65 +46,23 @@ PER_SEED_FIELDS = [
     "metrics_path",
 ]
 
-MAIN_VS_GEN_FIELDS = [
-    "dataset",
-    "scenario",
-    "seed",
-    "gen_precision",
-    "gen_recall",
-    "gen_f1",
-    "proposed_precision",
-    "proposed_recall",
-    "proposed_f1",
-    "delta_precision",
-    "delta_recall",
-    "delta_f1",
-    "status",
-    "proposed_metrics_path",
-]
+METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
 
-AGGREGATE_FIELDS = [
-    "dataset",
-    "scenario",
-    "proposed_precision_mean",
-    "proposed_precision_std",
-    "proposed_recall_mean",
-    "proposed_recall_std",
-    "proposed_f1_mean",
-    "proposed_f1_std",
-    "original_gen_reference_precision",
-    "original_gen_reference_recall",
-    "original_gen_reference_f1",
-    "delta_f1_mean_vs_gen",
-    "num_proposed_seeds",
-    "status",
-]
+KEPT_VARIANTS = {
+    "ablation_no_causal_tof",
+    "proposed_causal_gss_gpt55_causal_tof",
+}
 
-ABLATION_FIELDS = [
-    "dataset",
-    "scenario",
-    "seed",
-    "proposed_precision",
-    "proposed_recall",
-    "proposed_f1",
-    "ablation_precision",
-    "ablation_recall",
-    "ablation_f1",
-    "delta_precision",
-    "delta_recall",
-    "delta_f1",
-    "status",
+DELTA_PAIRS = [
+    ("proposed_causal_gss_gpt55_causal_tof", "ablation_no_causal_tof"),
 ]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize CausalSmartHome matrix results.")
+    parser = argparse.ArgumentParser(description="Summarize the current main experiment downstream AD results.")
     parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "downstream_ad")
     parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "summary")
-    parser.add_argument("--reference-json", type=Path, default=REPO_ROOT / "causal_smart_home" / "resources" / "reference" / "smartgen_table3_ad.json")
     parser.add_argument("--metrics-glob", default="**/normalized_metrics.json")
-    parser.add_argument("--matrix", default="all", choices=["all"])
-    parser.add_argument("--ablation", action="store_true", help="Also print ablation summary status; files are always written.")
     return parser.parse_args()
 
 
@@ -109,6 +71,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def collect_metric_files(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[Path]:
+    """Collect normalized per-run metrics."""
     return sorted(path for path in runs_root.glob(metrics_glob) if path.is_file())
 
 
@@ -116,10 +79,10 @@ def _as_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
     try:
-        value = float(value)
+        f = float(value)
     except Exception:
         return None
-    return value if math.isfinite(value) else None
+    return f if math.isfinite(f) else None
 
 
 def _as_int(value: Any) -> int | None:
@@ -128,120 +91,49 @@ def _as_int(value: Any) -> int | None:
     try:
         return int(value)
     except Exception:
-        return None
+        try:
+            return int(float(value))
+        except Exception:
+            return None
 
 
 def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[str, Any]:
-    row = dict(payload)
+    row = {field: payload.get(field, "") for field in PER_SEED_FIELDS}
     row["seed"] = _as_int(row.get("seed"))
-    row["dataset"] = str(row.get("dataset", "")).lower()
-    row["scenario"] = str(row.get("scenario", "")).lower()
-    row["variant"] = str(row.get("variant", ""))
     row["metrics_path"] = row.get("metrics_path") or str(metrics_path.resolve())
     row["run_dir"] = row.get("run_dir") or str(metrics_path.parent.resolve())
-    for field in METRIC_FIELDS:
-        row[field] = _as_float(row.get(field))
+    if not row.get("input_pkl"):
+        row["input_pkl"] = payload.get("synthetic_pkl", "")
+    for key in [
+        "used_gen_original_tof",
+        "used_causal_tof",
+        "api_llm",
+    ]:
+        value = row.get(key)
+        if isinstance(value, str):
+            row[key] = value.lower() == "true" if value.lower() in {"true", "false"} else value
+    for key in METRIC_FIELDS + ["threshold"]:
+        row[key] = _as_float(row.get(key))
+    for key in [
+        "num_generated_before_tof",
+        "num_generated_after_gen_tof",
+        "num_generated_after_causal_tof",
+        "train_size",
+        "validation_size",
+        "test_size",
+    ]:
+        row[key] = _as_int(row.get(key))
     return row
 
 
 def collect_per_seed_rows(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[dict[str, Any]]:
     rows = []
     for path in collect_metric_files(runs_root, metrics_glob):
-        row = normalize_metric_row(load_json(path), path)
-        if row.get("variant") in {PROPOSED_VARIANT, ABLATION_VARIANT}:
+        payload = load_json(path)
+        row = normalize_metric_row(payload, path)
+        if row.get("variant") in KEPT_VARIANTS:
             rows.append(row)
     rows.sort(key=lambda r: (str(r.get("dataset")), str(r.get("scenario")), int(r.get("seed") or -1), str(r.get("variant"))))
-    return rows
-
-
-def index_rows(rows: list[dict[str, Any]]) -> dict[tuple[str, str, int, str], dict[str, Any]]:
-    indexed = {}
-    for row in rows:
-        seed = row.get("seed")
-        if seed is None:
-            continue
-        indexed[(row["dataset"], row["scenario"], int(seed), row["variant"])] = row
-    return indexed
-
-
-def reference_row(dataset: str, scenario: str, seed: int, reference: dict[tuple[str, str], dict[str, Any]]) -> dict[str, Any]:
-    ref = reference[(dataset, scenario)]
-    return {
-        "dataset": dataset,
-        "scenario": scenario,
-        "seed": seed,
-        "variant": REFERENCE_VARIANT,
-        "precision": ref["precision"],
-        "recall": ref["recall"],
-        "f1": ref["f1"],
-        "accuracy": None,
-        "fpr": None,
-        "fnr": None,
-        "status": "reference",
-        "run_dir": "",
-        "metrics_path": ref.get("source", "SmartGen paper Table 3, SmartGen column"),
-    }
-
-
-def missing_row(dataset: str, scenario: str, seed: int, variant: str) -> dict[str, Any]:
-    return {
-        "dataset": dataset,
-        "scenario": scenario,
-        "seed": seed,
-        "variant": variant,
-        "precision": None,
-        "recall": None,
-        "f1": None,
-        "accuracy": None,
-        "fpr": None,
-        "fnr": None,
-        "status": "MISSING",
-        "run_dir": "",
-        "metrics_path": "",
-    }
-
-
-def build_main_per_seed_rows(
-    metric_rows: list[dict[str, Any]],
-    reference: dict[tuple[str, str], dict[str, Any]],
-) -> list[dict[str, Any]]:
-    indexed = index_rows(metric_rows)
-    rows = []
-    for item in experiment_grid():
-        for seed in SEEDS:
-            rows.append(reference_row(item.dataset, item.scenario, seed, reference))
-            rows.append(indexed.get((item.dataset, item.scenario, seed, PROPOSED_VARIANT), missing_row(item.dataset, item.scenario, seed, PROPOSED_VARIANT)))
-    return rows
-
-
-def build_main_vs_gen_rows(
-    metric_rows: list[dict[str, Any]],
-    reference: dict[tuple[str, str], dict[str, Any]],
-) -> list[dict[str, Any]]:
-    indexed = index_rows(metric_rows)
-    rows = []
-    for item in experiment_grid():
-        gen = reference[(item.dataset, item.scenario)]
-        for seed in SEEDS:
-            proposed = indexed.get((item.dataset, item.scenario, seed, PROPOSED_VARIANT))
-            row = {
-                "dataset": item.dataset,
-                "scenario": item.scenario,
-                "seed": seed,
-                "gen_precision": gen["precision"],
-                "gen_recall": gen["recall"],
-                "gen_f1": gen["f1"],
-                "proposed_precision": proposed.get("precision") if proposed else None,
-                "proposed_recall": proposed.get("recall") if proposed else None,
-                "proposed_f1": proposed.get("f1") if proposed else None,
-                "status": "success" if proposed else "MISSING",
-                "proposed_metrics_path": proposed.get("metrics_path") if proposed else "",
-            }
-            for metric in ("precision", "recall", "f1"):
-                proposed_value = row[f"proposed_{metric}"]
-                gen_value = row[f"gen_{metric}"]
-                row[f"delta_{metric}"] = proposed_value - gen_value if proposed_value is not None else None
-            rows.append(row)
     return rows
 
 
@@ -253,60 +145,70 @@ def mean_std(values: list[float]) -> tuple[float | None, float | None]:
     return statistics.mean(values), statistics.stdev(values)
 
 
-def build_aggregate_rows(
-    metric_rows: list[dict[str, Any]],
-    reference: dict[tuple[str, str], dict[str, Any]],
-) -> list[dict[str, Any]]:
-    indexed = index_rows(metric_rows)
-    rows = []
-    for item in experiment_grid():
-        proposed_rows = [
-            indexed[(item.dataset, item.scenario, seed, PROPOSED_VARIANT)]
-            for seed in SEEDS
-            if (item.dataset, item.scenario, seed, PROPOSED_VARIANT) in indexed
-        ]
-        row: dict[str, Any] = {"dataset": item.dataset, "scenario": item.scenario}
-        for metric in ("precision", "recall", "f1"):
-            values = [float(proposed[metric]) for proposed in proposed_rows if proposed.get(metric) is not None]
-            mean, std = mean_std(values)
-            row[f"proposed_{metric}_mean"] = mean
-            row[f"proposed_{metric}_std"] = std
-        ref = reference[(item.dataset, item.scenario)]
-        row["original_gen_reference_precision"] = ref["precision"]
-        row["original_gen_reference_recall"] = ref["recall"]
-        row["original_gen_reference_f1"] = ref["f1"]
-        row["delta_f1_mean_vs_gen"] = row["proposed_f1_mean"] - ref["f1"] if row["proposed_f1_mean"] is not None else None
-        row["num_proposed_seeds"] = len(proposed_rows)
-        row["status"] = "COMPLETE" if len(proposed_rows) == len(SEEDS) else "MISSING"
-        rows.append(row)
-    return rows
+def build_aggregate_rows(per_seed_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in per_seed_rows:
+        groups[(str(row.get("dataset")), str(row.get("scenario")), str(row.get("variant")))].append(row)
+    aggregate = []
+    for (dataset, scenario, variant), rows in sorted(groups.items()):
+        item: dict[str, Any] = {
+            "table_type": "aggregate_mean_std_not_replacement_for_per_seed",
+            "dataset": dataset,
+            "scenario": scenario,
+            "variant": variant,
+            "num_seeds": len({row.get("seed") for row in rows}),
+            "seeds": ",".join(str(row.get("seed")) for row in rows),
+        }
+        for metric in METRIC_FIELDS:
+            vals = [float(row[metric]) for row in rows if row.get(metric) is not None]
+            mean, std = mean_std(vals)
+            item[f"{metric}_mean"] = mean
+            item[f"{metric}_std"] = std
+        aggregate.append(item)
+    return aggregate
 
 
-def build_ablation_rows(metric_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    indexed = index_rows(metric_rows)
-    rows = []
-    for item in experiment_grid():
-        for seed in SEEDS:
-            proposed = indexed.get((item.dataset, item.scenario, seed, PROPOSED_VARIANT))
-            ablation = indexed.get((item.dataset, item.scenario, seed, ABLATION_VARIANT))
-            row = {
-                "dataset": item.dataset,
-                "scenario": item.scenario,
+def index_rows(per_seed_rows: list[dict[str, Any]]) -> dict[tuple[str, str, int, str], dict[str, Any]]:
+    indexed = {}
+    for row in per_seed_rows:
+        seed = row.get("seed")
+        if seed is None:
+            continue
+        indexed[(str(row.get("dataset")), str(row.get("scenario")), int(seed), str(row.get("variant")))] = row
+    return indexed
+
+
+def build_seed_delta_rows(per_seed_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    indexed = index_rows(per_seed_rows)
+    keys = sorted({(dataset, scenario, seed) for dataset, scenario, seed, _variant in indexed})
+    variants_present = {str(row.get("variant")) for row in per_seed_rows}
+    deltas: list[dict[str, Any]] = []
+    for dataset, scenario, seed in keys:
+        for compare_variant, base_variant in DELTA_PAIRS:
+            compare = indexed.get((dataset, scenario, seed, compare_variant))
+            base = indexed.get((dataset, scenario, seed, base_variant))
+            if not compare or not base:
+                continue
+            item: dict[str, Any] = {
+                "dataset": dataset,
+                "scenario": scenario,
                 "seed": seed,
-                "proposed_precision": proposed.get("precision") if proposed else None,
-                "proposed_recall": proposed.get("recall") if proposed else None,
-                "proposed_f1": proposed.get("f1") if proposed else None,
-                "ablation_precision": ablation.get("precision") if ablation else None,
-                "ablation_recall": ablation.get("recall") if ablation else None,
-                "ablation_f1": ablation.get("f1") if ablation else None,
-                "status": "success" if proposed and ablation else "MISSING",
+                "compare_variant": compare_variant,
+                "base_variant": base_variant,
+                "comparison": f"{compare_variant} vs {base_variant}",
             }
-            for metric in ("precision", "recall", "f1"):
-                proposed_value = row[f"proposed_{metric}"]
-                ablation_value = row[f"ablation_{metric}"]
-                row[f"delta_{metric}"] = proposed_value - ablation_value if proposed_value is not None and ablation_value is not None else None
-            rows.append(row)
-    return rows
+            for metric in METRIC_FIELDS:
+                c = compare.get(metric)
+                b = base.get(metric)
+                item[f"{metric}_compare"] = c
+                item[f"{metric}_base"] = b
+                item[f"{metric}_delta"] = (c - b) if c is not None and b is not None else None
+            deltas.append(item)
+    meta = {
+        "variants_present": sorted(variants_present),
+        "note": "Delta rows compare the proposed method against the w/o Causal-TOF ablation for each seed.",
+    }
+    return deltas, meta
 
 
 def jsonable(obj: Any) -> Any:
@@ -332,14 +234,20 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None
 
 def fmt(value: Any) -> str:
     if value is None or value == "":
-        return "MISSING" if value == "MISSING" else ""
+        return ""
     if isinstance(value, float):
         return f"{value:.6f}"
     return str(value)
 
 
-def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fields: list[str], note: str) -> None:
-    lines = [f"# {title}", "", MAIN_NOTE, "", note, ""]
+def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fields: list[str], note: str | None = None) -> None:
+    lines = [f"# {title}", ""]
+    if note:
+        lines.extend([note, ""])
+    if not rows:
+        lines.append("No rows found.")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
     lines.append("| " + " | ".join(fields) + " |")
     lines.append("| " + " | ".join(["---"] * len(fields)) + " |")
     for row in rows:
@@ -347,86 +255,52 @@ def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fie
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_table_bundle(out_dir: Path, stem: str, title: str, rows: list[dict[str, Any]], fields: list[str], note: str) -> None:
-    write_csv(out_dir / f"{stem}.csv", rows, fields)
-    (out_dir / f"{stem}.json").write_text(json.dumps(jsonable(rows), ensure_ascii=False, indent=2), encoding="utf-8")
-    write_markdown_table(out_dir / f"{stem}.md", title, rows, fields, note)
-
-
-def write_outputs(out_dir: Path, main_per_seed: list[dict[str, Any]], main_vs_gen: list[dict[str, Any]], aggregate: list[dict[str, Any]], ablation: list[dict[str, Any]]) -> None:
+def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]], delta_rows: list[dict[str, Any]], delta_meta: dict[str, Any]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_table_bundle(
-        out_dir,
-        "main_comparison_per_seed",
-        "Main Comparison Per Seed",
-        main_per_seed,
+    prefix = "main_experiment"
+
+    write_csv(out_dir / f"{prefix}_per_seed.csv", per_seed_rows, PER_SEED_FIELDS)
+    (out_dir / f"{prefix}_per_seed.json").write_text(json.dumps(jsonable(per_seed_rows), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown_table(
+        out_dir / f"{prefix}_per_seed.md",
+        "Main Experiment Gen Built-in AD Per-Seed Results",
+        per_seed_rows,
         PER_SEED_FIELDS,
-        "The paper-reported SmartGen/Gen reference has no seed; it is repeated per seed for alignment.",
+        note="Each row is one seed. These rows are the primary evidence table.",
     )
-    write_table_bundle(
-        out_dir,
-        "main_comparison_vs_gen",
-        "Main Comparison vs Gen Reference",
-        main_vs_gen,
-        MAIN_VS_GEN_FIELDS,
-        "Deltas are proposed minus SmartGen/Gen Table 3 reference. Missing proposed runs are explicit.",
+
+    aggregate_fields = ["table_type", "dataset", "scenario", "variant", "num_seeds", "seeds"] + [f"{m}_{s}" for m in METRIC_FIELDS for s in ("mean", "std")]
+    write_csv(out_dir / f"{prefix}_aggregate.csv", aggregate_rows, aggregate_fields)
+    (out_dir / f"{prefix}_aggregate.json").write_text(json.dumps(jsonable({"rows": aggregate_rows, "note": "aggregate is mean/std only and must not replace per-seed rows"}), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown_table(
+        out_dir / f"{prefix}_aggregate.md",
+        "Main Experiment Gen Built-in AD Aggregate Results",
+        aggregate_rows,
+        aggregate_fields,
+        note="Aggregate rows are mean/std summaries only. Conclusions should be checked against seed-level deltas.",
     )
-    write_table_bundle(
-        out_dir,
-        "main_comparison_aggregate",
-        "Main Comparison Aggregate",
-        aggregate,
-        AGGREGATE_FIELDS,
-        "Aggregate rows summarize proposed seeds per dataset-scenario and keep the reference baseline alongside them.",
-    )
-    write_table_bundle(
-        out_dir,
-        "ablation_causal_tof",
-        "Ablation: effect of Causal-TOF",
-        ablation,
-        ABLATION_FIELDS,
-        "This table compares proposed against ablation_no_causal_tof only; it is not the main baseline.",
-    )
-    # Compatibility names from the old script now point to the corrected main-vs-reference content.
-    write_table_bundle(
-        out_dir,
-        "main_experiment_aggregate",
-        "Main Comparison Aggregate",
-        aggregate,
-        AGGREGATE_FIELDS,
-        "Compatibility copy of main_comparison_aggregate; ablation_no_causal_tof is not a main baseline.",
-    )
-    write_table_bundle(
-        out_dir,
-        "main_experiment_per_seed",
-        "Main Comparison Per Seed",
-        main_per_seed,
-        PER_SEED_FIELDS,
-        "Compatibility copy of main_comparison_per_seed; ablation rows are excluded from main comparison.",
-    )
-    write_table_bundle(
-        out_dir,
-        "main_experiment_seed_deltas",
-        "Main Comparison vs Gen Reference",
-        main_vs_gen,
-        MAIN_VS_GEN_FIELDS,
-        "Compatibility copy of main_comparison_vs_gen; deltas are proposed minus SmartGen/Gen Table 3 reference.",
+
+    delta_fields = ["dataset", "scenario", "seed", "comparison", "compare_variant", "base_variant"] + [f"{m}_{suffix}" for m in METRIC_FIELDS for suffix in ("compare", "base", "delta")]
+    write_csv(out_dir / f"{prefix}_seed_deltas.csv", delta_rows, delta_fields)
+    (out_dir / f"{prefix}_seed_deltas.json").write_text(json.dumps(jsonable({"meta": delta_meta, "rows": delta_rows}), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown_table(
+        out_dir / f"{prefix}_seed_deltas.md",
+        "Main Experiment Gen Built-in AD Seed-Level Deltas",
+        delta_rows,
+        delta_fields,
+        note="Deltas are compare minus base for each seed.",
     )
 
 
 def main() -> None:
     args = parse_args()
-    metric_rows = collect_per_seed_rows(args.runs_root.resolve(), args.metrics_glob)
-    reference = load_reference_baseline(args.reference_json.resolve())
-    main_per_seed = build_main_per_seed_rows(metric_rows, reference)
-    main_vs_gen = build_main_vs_gen_rows(metric_rows, reference)
-    aggregate = build_aggregate_rows(metric_rows, reference)
-    ablation = build_ablation_rows(metric_rows)
-    write_outputs(args.out_dir.resolve(), main_per_seed, main_vs_gen, aggregate, ablation)
-    print(f"main per-seed rows: {len(main_per_seed)}")
-    print(f"main vs Gen rows: {len(main_vs_gen)}")
+    per_seed = collect_per_seed_rows(args.runs_root.resolve(), args.metrics_glob)
+    aggregate = build_aggregate_rows(per_seed)
+    deltas, meta = build_seed_delta_rows(per_seed)
+    write_outputs(args.out_dir.resolve(), per_seed, aggregate, deltas, meta)
+    print(f"per-seed rows: {len(per_seed)}")
     print(f"aggregate rows: {len(aggregate)}")
-    print(f"ablation rows: {len(ablation)}")
+    print(f"seed-delta rows: {len(deltas)}")
     print(f"saved summaries: {args.out_dir.resolve()}")
 
 

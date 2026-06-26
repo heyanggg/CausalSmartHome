@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alpha-rec", type=float, default=1.0)
     parser.add_argument("--beta-violation", type=float, default=1.0)
     parser.add_argument("--gamma-dist", type=float, default=1.0)
+    parser.add_argument(
+        "--penalize-downweighted-edges",
+        action="store_true",
+        help="Also count guard_action=downweight causal edges in the violation penalty. By default they remain diagnostic only.",
+    )
     parser.add_argument("--min-weight", type=float, default=0.05)
     parser.add_argument("--max-copies", type=int, default=3)
     parser.add_argument("--resample-size", type=int)
@@ -69,6 +74,7 @@ def main() -> None:
         beta_violation=args.beta_violation,
         gamma_dist=args.gamma_dist,
         temperature=args.temperature,
+        penalize_downweighted_edges=args.penalize_downweighted_edges,
     )
 
     out_scores = Path(args.out_scores).resolve()
@@ -97,6 +103,8 @@ def main() -> None:
         resampling_config["mode"] = args.mode
         save_pickle_sequences(out_resampled, resampled)
     resampling_config["input_stage"] = args.input_stage
+    resampling_config["penalize_downweighted_edges"] = bool(args.penalize_downweighted_edges)
+    resampling_config["beta_violation"] = float(args.beta_violation)
     resampling_config["used_gen_original_tof"] = args.input_stage == "gen_original_tof"
     resampling_config["used_causal_tof"] = True
     resampling_config["num_generated_after_gen_tof"] = len(sequences) if args.input_stage == "gen_original_tof" else None

@@ -2,8 +2,11 @@ import json
 import pickle
 
 from causal_smart_home.gen_downstream_ad import (
+    DEFAULT_THRESHOLD_PERCENTAGES,
+    DEFAULT_THRESHOLDS,
     GenDownstreamADRunConfig,
     default_gen_paths,
+    env_for_scenario,
     run_gen_downstream_ad_experiment,
     split_generated_to_train_validation,
 )
@@ -20,6 +23,19 @@ def test_default_gen_paths(tmp_path):
 
     assert paths["attack_pkl"].as_posix().endswith("attack/sp/labeled_sp_spring_attack_heater.pkl")
     assert paths["target_test_pkl"].as_posix().endswith("test/sp/spring/test.pkl")
+
+    fr_paths = default_gen_paths(tmp_path, "fr", "night")
+    assert fr_paths["attack_pkl"].as_posix().endswith("attack/fr/labeled_fr_night_attack_time.pkl")
+    assert fr_paths["target_test_pkl"].as_posix().endswith("test/fr/night/test.pkl")
+
+
+def test_gen_main_matrix_thresholds_and_scenario_aliases():
+    assert len(DEFAULT_THRESHOLDS) == 9
+    assert len(DEFAULT_THRESHOLD_PERCENTAGES) == 9
+    assert env_for_scenario("st") == "spring"
+    assert env_for_scenario("tt") == "night"
+    assert env_for_scenario("nt") == "multiple"
+    assert DEFAULT_THRESHOLDS[("us", "multiple")] == "0.913"
 
 
 def test_split_generated_to_train_validation_is_deterministic(tmp_path):

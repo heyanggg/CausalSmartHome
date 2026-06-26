@@ -1,16 +1,21 @@
 # Gen Data Resources
 
-This directory currently contains the SP-ST Gen data needed by the historical
-completed subset of the main experiment:
+This directory contains the vendored Gen data needed by the CausalSmartHome main
+experiment matrix:
+
+```text
+FR/SP/US x spring/night/multiple
+```
 
 - `dictionary.py`: device/action dictionary copied from the Gen source project.
-- `sp/winter/trn.pkl`: SP winter source-context normal behavior data.
-- `sp/spring/split_test.pkl`: SP spring target-context split test data.
-- `sp/spring/test.pkl`, `trn.pkl`, `vld.pkl`: SP spring target-context data used by Gen evaluation code.
-
-The canonical main experiment matrix is FR/SP/US x ST/TT/NT. Dataset-scenario
-cells without matching files in this directory must be reported as `MISSING`;
-the SP-ST data here must not be treated as a complete matrix.
+- `{fr,sp,us}/winter/`: source-context data for spring transfer.
+- `{fr,sp,us}/daytime/`: source-context data for night transfer.
+- `{fr,sp,us}/single/`: source-context data for multiple transfer.
+- `{fr,sp,us}/{spring,night,multiple}/`: target-context test/split data and any
+  target auxiliary files provided by Gen.
 
 The runnable Gen code used by TOF and downstream AD is vendored under
 `causal_smart_home/gen_core/`.
+
+Use `python scripts/check_gen_main_data.py` from the project root to verify the
+required Gen data, checkpoints, attacks, tests, and reference result files.

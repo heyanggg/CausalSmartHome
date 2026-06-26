@@ -208,6 +208,9 @@ class GradientCausalMiner:
         out = np.maximum(diff, 0.0)
         diag = np.diag(matrix).copy()
         np.fill_diagonal(out, diag)
+        max_positive = float(np.max(out)) if out.size else 0.0
+        if max_positive > 0:
+            out = out / max_positive
         if threshold > 0:
             out[out < threshold] = 0.0
         return out.astype(np.float32)

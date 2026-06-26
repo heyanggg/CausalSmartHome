@@ -3,6 +3,7 @@ import pickle
 import textwrap
 
 from causal_smart_home.gen_original_tof import GenOriginalTOFConfig, run_gen_original_tof
+from causal_smart_home.gen_original_tof import gen_env_for_scenario
 
 
 def _dump(path, obj):
@@ -58,3 +59,9 @@ def test_gen_original_tof_wrapper_calls_mock_security_check(tmp_path):
     saved = json.loads((tmp_path / "out" / "gen_original_tof_report.json").read_text())
     assert saved["gen_original_tof_filter"] == "reconstruction_loss_iqr_outlier_detection"
     assert saved["gen_original_tof_utility_selection"] == "utility_value_selection"
+
+
+def test_gen_original_tof_scenario_aliases():
+    assert gen_env_for_scenario("st") == "spring"
+    assert gen_env_for_scenario("tt") == "night"
+    assert gen_env_for_scenario("nt") == "multiple"
