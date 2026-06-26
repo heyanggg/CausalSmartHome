@@ -54,14 +54,15 @@ Codex 名称。
 - proposed precision / recall / FPR
 - device
 
-当前已完成的 FR-ST / FR-spring、SP-ST / SP-spring、SP-TT / SP-night 与
-SP-NT / SP-multiple 结果：
+当前已完成的 FR-ST / FR-spring、FR-TT / FR-night seed2024、SP-ST / SP-spring、
+SP-TT / SP-night 与 SP-NT / SP-multiple 结果：
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | fr | spring | 2024 | 0.861386 | 0.956522 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
 | fr | spring | 2025 | 0.861386 | 0.814815 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
 | fr | spring | 2026 | 0.861386 | 0.956522 | 0.983240 | 0.967033 | 1.000000 | 0.034091 | cuda |
+| fr | night | 2024 | 0.969944 | 0.911005 | 0.993737 | 0.987552 | 1.000000 | 0.012605 | cuda |
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
@@ -76,6 +77,7 @@ SP-NT / SP-multiple 结果：
 
 ```text
 outputs/main_experiment/fr_st/
+outputs/main_experiment/fr_tt/
 outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
@@ -110,6 +112,13 @@ validation split。Gen TOF 后条数为 117 / 188 / 183。
 FR-spring 的 Causal-TOF 使用默认 `mode=weight`，不是 SP-multiple 的 filter 模式。
 `penalize_downweighted_edges=false` 保持默认。最终 Causal-TOF 后条数保持
 117 / 188 / 183，proposed 三 seed F1 为 0.977778 / 0.977778 / 0.983240。
+
+FR-night 按 2026-06-27 用户要求只跑 seed2024，目标改为高于 Gen paper 分数即可。
+本格和 spring/multiple 的关键不同在时间槽：target normal 只出现在 hour slot
+`0/1/6/7`，attack 则把相同设备动作挪到 `2/3/4/5`。因此生成时必须严格生成 night
+normal 时间，不要混入 `2/3/4/5`，否则会削弱 time attack 的判别边界。seed2024 使用
+300 条 pre-TOF，Gen TOF 后 277 条，Causal-TOF 默认 `mode=weight` 后仍为 277 条；
+proposed F1 为 0.993737，高于 Gen paper/project FR-night 0.969944。
 
 SP-multiple 也不能照搬 SP-spring 或 SP-night。2026-06-26 首轮 `sp_nt`
 结果偏低后重新排查，先确认 SmartGen 原始 SP-multiple gpt-4o synthetic 是 100 条

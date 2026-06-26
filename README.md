@@ -42,6 +42,7 @@ The completed GPU runs are stored locally under:
 
 ```text
 outputs/main_experiment/fr_st/
+outputs/main_experiment/fr_tt/
 outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
@@ -56,6 +57,7 @@ average table, and do not report deltas against Gen.
 | fr | spring | 2024 | 0.861386 | 0.956522 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
 | fr | spring | 2025 | 0.861386 | 0.814815 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
 | fr | spring | 2026 | 0.861386 | 0.956522 | 0.983240 | 0.967033 | 1.000000 | 0.034091 | cuda |
+| fr | night | 2024 | 0.969944 | 0.911005 | 0.993737 | 0.987552 | 1.000000 | 0.012605 | cuda |
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
@@ -135,6 +137,11 @@ the experiment to CPU fallback.
   a larger 200-row pre-TOF generation to stabilize the spring 80/20 validation
   split; final pre-TOF counts are 125 / 200 / 200 for seeds 2024 / 2025 / 2026,
   Gen TOF keeps 117 / 188 / 183 rows, and Causal-TOF keeps the same row counts.
+- FR-night was run for seed2024 only by request. The key rule is temporal:
+  target normal events occur in hour slots `0/1/6/7`, while the attack set moves
+  otherwise similar behavior into `2/3/4/5`. Generate night normal rows only in
+  `0/1/6/7`; seed2024 used 300 pre-TOF rows, Gen TOF kept 277, and Causal-TOF
+  default weight mode kept 277.
 - In SP-multiple, SmartGen's own gpt-4o synthetic source has 100 raw rows
   before TOF/filtering, but its downstream AD baseline uses the full filtered
   multiple-context synthetic set for both training and threshold calibration
