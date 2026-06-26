@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 import importlib.util
+import importlib
 import json
 import math
 import numpy as np
@@ -12,17 +13,39 @@ import pickle
 import random
 import sys
 
-from .experiment_matrix import VOCAB_SIZES
+from .experiment_matrix import DEFAULT_AD_PERCENTAGES_BY_SCENARIO, DEFAULT_THRESHOLDS_BY_SCENARIO, VOCAB_SIZES
 
 
 VOCAB_DIC = dict(VOCAB_SIZES)
 
 DEFAULT_THRESHOLDS = {
-    ("sp", "spring"): "0.915",
+    ("fr", "spring"): DEFAULT_THRESHOLDS_BY_SCENARIO[("fr", "st")],
+    ("fr", "nighttime"): DEFAULT_THRESHOLDS_BY_SCENARIO[("fr", "tt")],
+    ("fr", "night"): DEFAULT_THRESHOLDS_BY_SCENARIO[("fr", "tt")],
+    ("fr", "multiple"): DEFAULT_THRESHOLDS_BY_SCENARIO[("fr", "nt")],
+    ("sp", "spring"): DEFAULT_THRESHOLDS_BY_SCENARIO[("sp", "st")],
+    ("sp", "nighttime"): DEFAULT_THRESHOLDS_BY_SCENARIO[("sp", "tt")],
+    ("sp", "night"): DEFAULT_THRESHOLDS_BY_SCENARIO[("sp", "tt")],
+    ("sp", "multiple"): DEFAULT_THRESHOLDS_BY_SCENARIO[("sp", "nt")],
+    ("us", "spring"): DEFAULT_THRESHOLDS_BY_SCENARIO[("us", "st")],
+    ("us", "nighttime"): DEFAULT_THRESHOLDS_BY_SCENARIO[("us", "tt")],
+    ("us", "night"): DEFAULT_THRESHOLDS_BY_SCENARIO[("us", "tt")],
+    ("us", "multiple"): DEFAULT_THRESHOLDS_BY_SCENARIO[("us", "nt")],
 }
 
 DEFAULT_THRESHOLD_PERCENTAGES = {
-    ("sp", "spring"): 95.0,
+    ("fr", "spring"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("fr", "st")],
+    ("fr", "nighttime"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("fr", "tt")],
+    ("fr", "night"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("fr", "tt")],
+    ("fr", "multiple"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("fr", "nt")],
+    ("sp", "spring"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("sp", "st")],
+    ("sp", "nighttime"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("sp", "tt")],
+    ("sp", "night"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("sp", "tt")],
+    ("sp", "multiple"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("sp", "nt")],
+    ("us", "spring"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("us", "st")],
+    ("us", "nighttime"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("us", "tt")],
+    ("us", "night"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("us", "tt")],
+    ("us", "multiple"): DEFAULT_AD_PERCENTAGES_BY_SCENARIO[("us", "nt")],
 }
 
 
@@ -53,7 +76,13 @@ def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str,
     if dataset not in VOCAB_DIC:
         raise ValueError(f"dataset must be one of {sorted(VOCAB_DIC)}")
     pipeline = Path(gen_root).resolve() / "anomaly_detection_pipeline"
-    attack_name = f"labeled_{dataset}_{env}_attack_heater.pkl"
+    attack_env = "night" if env == "nighttime" else env
+    attack_kind = {
+        "spring": "heater",
+        "night": "time",
+        "multiple": "tv",
+    }.get(attack_env, "heater")
+    attack_name = f"labeled_{dataset}_{attack_env}_attack_{attack_kind}.pkl"
     return {
         "pipeline_root": pipeline,
         "attack_pkl": pipeline / "attack" / dataset / attack_name,
@@ -62,8 +91,26 @@ def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str,
 
 
 def load_pickle(path: str | Path) -> Any:
+    _install_numpy_pickle_compat()
     with open(path, "rb") as f:
         return pickle.load(f)
+
+
+def _install_numpy_pickle_compat() -> None:
+    if "numpy._core" not in sys.modules:
+        try:
+            sys.modules["numpy._core"] = importlib.import_module("numpy.core")
+        except Exception:
+            return
+    for submodule in ("multiarray", "numeric", "fromnumeric", "umath", "_multiarray_umath"):
+        old_name = f"numpy.core.{submodule}"
+        new_name = f"numpy._core.{submodule}"
+        if new_name in sys.modules:
+            continue
+        try:
+            sys.modules[new_name] = importlib.import_module(old_name)
+        except Exception:
+            pass
 
 
 def save_pickle(path: str | Path, obj: Any) -> None:

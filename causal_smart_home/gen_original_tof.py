@@ -40,6 +40,7 @@ class GenOriginalTOFConfig:
     python_executable: str = sys.executable
     cuda_visible_devices: str | None = "0"
     dry_run: bool = False
+    allow_cpu_smoke_test: bool = False
 
 
 def gen_env_for_scenario(scenario: str) -> str:
@@ -123,6 +124,8 @@ def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
         "gen_original_tof_filter": "reconstruction_loss_iqr_outlier_detection",
         "gen_original_tof_utility_selection": "utility_value_selection",
         "dry_run": bool(config.dry_run),
+        "execution_mode": "formal_cuda",
+        "allow_cpu_smoke_test": bool(config.allow_cpu_smoke_test),
     }
 
     if config.dry_run:
@@ -148,19 +151,60 @@ def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
     env_vars = os.environ.copy()
     if config.cuda_visible_devices is not None:
         env_vars["CUDA_VISIBLE_DEVICES"] = str(config.cuda_visible_devices)
-    env_vars["PYTHONPATH"] = str(code_dir) + os.pathsep + env_vars.get("PYTHONPATH", "")
+    model_code_dir = config.gen_root.resolve() / "anomaly_detection_pipeline"
+    env_vars["PYTHONPATH"] = os.pathsep.join(
+        [str(code_dir), str(model_code_dir), env_vars.get("PYTHONPATH", "")]
+    )
+
+    cpu_smoke_bootstrap = ""
+    try:
+        import torch
+
+        cuda_available = bool(torch.cuda.is_available())
+    except Exception:
+        cuda_available = False
+    if not cuda_available:
+        if not config.allow_cpu_smoke_test:
+            report.update(
+                {
+                    "status": "FAILED_ENV_NO_CUDA",
+                    "num_generated_after_gen_tof": None,
+                    "error": "CUDA is required for formal Gen original TOF; pass --allow-cpu-smoke-test only for smoke tests.",
+                }
+            )
+            write_report(out_dir, report)
+            raise RuntimeError("FAILED_ENV_NO_CUDA: CUDA is required for formal Gen original TOF")
+        report["execution_mode"] = "cpu_smoke_test"
+        cpu_smoke_bootstrap = (
+            "exec(\"try:\\n"
+            "    import torch\\n"
+            "except Exception:\\n"
+            "    torch = None\\n"
+            "if torch is not None and not torch.cuda.is_available():\\n"
+            "    torch.Tensor.cuda = lambda self, *args, **kwargs: self\\n"
+            "    torch.nn.Module.cuda = lambda self, *args, **kwargs: self\\n"
+            "    _torch_load = torch.load\\n"
+            "    def _cpu_load(*args, **kwargs):\\n"
+            "        kwargs.setdefault('map_location', 'cpu')\\n"
+            "        return _torch_load(*args, **kwargs)\\n"
+            "    torch.load = _cpu_load\\n"
+            "    mod.device = torch.device('cpu')\\n"
+            "\"); "
+        )
 
     code = (
         "import importlib.util, os; "
         f"os.chdir({str(code_dir)!r}); "
         f"spec=importlib.util.spec_from_file_location('gen_security_check', {str(security_check)!r}); "
         "mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); "
+        f"{cpu_smoke_bootstrap}"
         f"mod.setup_seed({int(config.seed)}) if hasattr(mod, 'setup_seed') else None; "
         f"mod.security_check({config.dataset!r}, {env!r}, {threshold!r}, {config.method!r}, {config.model!r})"
     )
     cmd = [config.python_executable, "-c", code]
     report["security_check_path"] = str(security_check)
     report["gen_code_dir"] = str(code_dir)
+    report["model_code_dir"] = str(model_code_dir)
     report["command"] = " ".join(shlex.quote(part) for part in cmd)
     report["expected_paths"] = {key: str(value) for key, value in paths.items()}
 
@@ -221,6 +265,8 @@ def write_report(out_dir: Path, report: dict[str, Any]) -> None:
         "num_generated_after_gen_tof",
         "output_stage",
         "security_check_path",
+        "execution_mode",
+        "allow_cpu_smoke_test",
     ]:
         lines.append(f"| {key} | {report.get(key, '')} |")
     (out_dir / "gen_original_tof_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

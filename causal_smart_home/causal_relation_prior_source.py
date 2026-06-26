@@ -112,15 +112,24 @@ def resolve_causal_relation_prior(
         return resolved
 
     if source_pkl:
-        resolved = _resolved_from_existing_adapter(
-            source_pkl=Path(source_pkl),
-            out_dir=Path(out_dir) if out_dir else None,
-            level=level,
-            lag=lag,
-            sparse_threshold=sparse_threshold,
-            seed=seed,
-            config=config,
-        )
+        if adapter_mode == "compact_fallback":
+            resolved = _resolved_from_transition_fallback(
+                source_pkl=Path(source_pkl),
+                level=level,
+                lag=lag,
+                sparse_threshold=sparse_threshold,
+                config=config,
+            )
+        else:
+            resolved = _resolved_from_existing_adapter(
+                source_pkl=Path(source_pkl),
+                out_dir=Path(out_dir) if out_dir else None,
+                level=level,
+                lag=lag,
+                sparse_threshold=sparse_threshold,
+                seed=seed,
+                config=config,
+            )
         _maybe_save(resolved, out_dir)
         return resolved
 
@@ -269,6 +278,54 @@ def _resolved_from_existing_adapter(
         out_dir.mkdir(parents=True, exist_ok=True)
         prior.save(out_dir / "causal_prior_adapter_raw.json")
     return resolved
+
+
+def _resolved_from_transition_fallback(
+    source_pkl: Path,
+    level: str,
+    lag: int,
+    sparse_threshold: float,
+    config: dict[str, Any],
+) -> ResolvedCausalRelationPrior:
+    if not source_pkl.exists():
+        raise FileNotFoundError(f"source_pkl not found: {source_pkl}")
+    sequences = _load_behavior_sequences_from_pickle(source_pkl)
+    if not sequences:
+        raise ValueError(f"source_pkl contains no valid flattened behavior sequences: {source_pkl}")
+
+    channels = sorted({event.key(level) for seq in sequences for event in seq.events})
+    index = {channel: i for i, channel in enumerate(channels)}
+    matrix = np.zeros((len(channels), len(channels)), dtype=np.float32)
+    for seq in sequences:
+        keys = [event.key(level) for event in seq.events]
+        for i, source_key in enumerate(keys):
+            for offset in range(1, max(1, int(lag)) + 1):
+                j = i + offset
+                if j >= len(keys):
+                    break
+                target_key = keys[j]
+                if source_key == target_key:
+                    continue
+                matrix[index[source_key], index[target_key]] += 1.0 / float(offset)
+    if matrix.size and float(matrix.max()) > 0.0:
+        matrix = matrix / float(matrix.max())
+    matrix[matrix < sparse_threshold] = 0.0
+    matrix_list = _matrix_to_list(matrix)
+    return ResolvedCausalRelationPrior(
+        causal_relation_source="transition_count_compact_fallback",
+        level=level,
+        lag=lag,
+        sparse_threshold=sparse_threshold,
+        channels=channels,
+        matrix=matrix_list,
+        top_causal_edges=_top_edges_from_matrix(matrix_list, channels, lag),
+        config={**config, "resolved_from": str(source_pkl), "causal_relation_source": "transition_count_compact_fallback"},
+        meta={
+            "input_format": "source_pkl_transition_count_fallback",
+            "sequence_count": len(sequences),
+            "note": "Lightweight non-torch fallback for GPT package prompt construction; not a downstream result.",
+        },
+    )
 
 
 def _load_behavior_sequences_from_pickle(path: Path) -> list[BehaviorSequence]:

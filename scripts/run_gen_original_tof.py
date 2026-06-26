@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-pkl", type=Path, help="Defaults to <out-dir>/gen_tof.pkl.")
     parser.add_argument("--cuda-visible-devices", default="0")
     parser.add_argument("--dry-run", action="store_true", help="Copy input to output and record that original TOF was not executed.")
+    parser.add_argument(
+        "--allow-cpu-smoke-test",
+        action="store_true",
+        help="Allow CPU compatibility shim only for smoke tests; never use for formal matrix runs.",
+    )
     return parser.parse_args()
 
 
@@ -54,6 +59,7 @@ def main() -> None:
             security_check_path=args.security_check_path,
             cuda_visible_devices=args.cuda_visible_devices,
             dry_run=args.dry_run,
+            allow_cpu_smoke_test=args.allow_cpu_smoke_test,
         )
     )
     print(f"saved Gen TOF pkl: {report.get('out_pkl')}")

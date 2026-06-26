@@ -47,10 +47,12 @@ def test_gen_original_tof_wrapper_calls_mock_security_check(tmp_path):
             out_pkl=tmp_path / "out" / "gen_tof.pkl",
             out_dir=tmp_path / "out",
             seed=2024,
+            allow_cpu_smoke_test=True,
         )
     )
 
     assert report["status"] == "success"
+    assert report["execution_mode"] in {"formal_cuda", "cpu_smoke_test"}
     assert report["used_gen_original_tof"] is True
     assert report["num_generated_before_tof"] == 4
     assert report["num_generated_after_gen_tof"] == 3

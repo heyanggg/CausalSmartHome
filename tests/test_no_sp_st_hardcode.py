@@ -26,3 +26,14 @@ def test_summary_help_does_not_describe_sp_st_only_scan():
 
     assert "SP-ST" not in summary_help
     assert "sp_st" not in summary_help
+
+
+def test_matrix_dry_run_scans_all_cells():
+    result = subprocess.run(
+        [sys.executable, "scripts/run_main_experiment_matrix.py", "--dry-run", "--matrix", "all"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "matrix cells: 27" in result.stdout

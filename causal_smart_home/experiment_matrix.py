@@ -43,6 +43,44 @@ PROPOSED_VARIANT = "proposed_causal_gss_gpt55_causal_tof"
 ABLATION_VARIANT = "ablation_no_causal_tof"
 REFERENCE_VARIANT = "original_gen_reference"
 
+STATUS_COMPLETE = "COMPLETE"
+STATUS_DOWNSTREAM_READY = "DOWNSTREAM_READY"
+STATUS_GENERATION_MISSING = "GENERATION_MISSING"
+STATUS_DATA_READY = "DATA_READY"
+STATUS_MISSING_DATA = "MISSING_DATA"
+STATUS_MISSING_ATTACK = "MISSING_ATTACK"
+STATUS_MISSING_CHECKPOINT = "MISSING_CHECKPOINT"
+
+TARGET_ATTACK_SUFFIX = {
+    "spring": "spring_attack_heater",
+    "nighttime": "night_attack_time",
+    "multiple": "multiple_attack_tv",
+}
+
+DEFAULT_THRESHOLDS_BY_SCENARIO = {
+    ("fr", "st"): "0.918",
+    ("fr", "tt"): "0.92",
+    ("fr", "nt"): "0.915",
+    ("sp", "st"): "0.915",
+    ("sp", "tt"): "0.917",
+    ("sp", "nt"): "0.915",
+    ("us", "st"): "0.905",
+    ("us", "tt"): "0.919",
+    ("us", "nt"): "0.913",
+}
+
+DEFAULT_AD_PERCENTAGES_BY_SCENARIO = {
+    ("fr", "st"): 95.5,
+    ("fr", "tt"): 95.0,
+    ("fr", "nt"): 99.0,
+    ("sp", "st"): 95.0,
+    ("sp", "tt"): 95.0,
+    ("sp", "nt"): 99.0,
+    ("us", "st"): 95.0,
+    ("us", "tt"): 93.0,
+    ("us", "nt"): 99.0,
+}
+
 
 @dataclass(frozen=True)
 class MatrixItem:
@@ -59,7 +97,63 @@ class MatrixItem:
         return scenario_key(self.dataset, self.scenario)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self) | {"key": self.key}
+        payload = asdict(self)
+        payload["key"] = self.key
+        return payload
+
+
+@dataclass(frozen=True)
+class MatrixCellPaths:
+    dataset: str
+    scenario: str
+    source_context: str
+    target_context: str
+    source_train_pkl: Path
+    target_train_pkl: Path
+    target_validation_pkl: Path
+    target_test_pkl: Path
+    target_split_test_pkl: Path
+    downstream_test_pkl: Path
+    downstream_test_dir: Path
+    downstream_attack_pkl: Path
+    downstream_attack_dir: Path
+    gen_original_tof_checkpoint: Path
+    downstream_checkpoint: Path
+    dictionary_py: Path
+
+    def to_dict(self) -> dict[str, Any]:
+        return {key: str(value) if isinstance(value, Path) else value for key, value in asdict(self).items()}
+
+
+@dataclass(frozen=True)
+class MatrixCellStatus:
+    dataset: str
+    scenario: str
+    status: str
+    missing_data: tuple[str, ...]
+    missing_attack: tuple[str, ...]
+    missing_checkpoint: tuple[str, ...]
+    missing_generation: tuple[str, ...]
+    missing_downstream: tuple[str, ...]
+    paths: MatrixCellPaths
+
+    @property
+    def missing(self) -> tuple[str, ...]:
+        return self.missing_data + self.missing_attack + self.missing_checkpoint + self.missing_generation + self.missing_downstream
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dataset": self.dataset,
+            "scenario": self.scenario,
+            "status": self.status,
+            "missing_data": list(self.missing_data),
+            "missing_attack": list(self.missing_attack),
+            "missing_checkpoint": list(self.missing_checkpoint),
+            "missing_generation": list(self.missing_generation),
+            "missing_downstream": list(self.missing_downstream),
+            "missing": list(self.missing),
+            "paths": self.paths.to_dict(),
+        }
 
 
 def scenario_key(dataset: str, scenario: str) -> str:
@@ -118,6 +212,16 @@ def resolve_existing_context(root: Path, dataset: str, context: str) -> str:
     return GEN_CONTEXT_ALIASES.get(context, (context,))[0]
 
 
+def canonical_context_dir(context: str) -> str:
+    if context == "nighttime":
+        return "nighttime"
+    return context
+
+
+def attack_suffix_for_target_context(target_context: str) -> str:
+    return TARGET_ATTACK_SUFFIX[target_context]
+
+
 def target_env_for_scenario(scenario: str, root: Path | None = None, dataset: str | None = None) -> str:
     item = matrix_item(dataset or DATASETS[0], scenario)
     if root is not None and dataset is not None:
@@ -159,6 +263,74 @@ def resource_paths(resources_root: Path, dataset: str, scenario: str) -> dict[st
         "target_train_pkl": resources_root / dataset / target_env / "trn.pkl",
         "target_validation_pkl": resources_root / dataset / target_env / "vld.pkl",
     }
+
+
+def resolve_matrix_cell_paths(dataset: str, scenario: str, root: Path) -> MatrixCellPaths:
+    item = matrix_item(dataset, scenario)
+    resources_root = root / "causal_smart_home" / "resources" / "gen_data"
+    gen_core = root / "causal_smart_home" / "gen_core"
+    source_dir = resources_root / dataset / canonical_context_dir(item.source_context)
+    target_dir = resources_root / dataset / canonical_context_dir(item.target_context)
+    target_env = canonical_context_dir(item.target_context)
+    attack_suffix = attack_suffix_for_target_context(item.target_context)
+    return MatrixCellPaths(
+        dataset=dataset,
+        scenario=scenario,
+        source_context=item.source_context,
+        target_context=item.target_context,
+        source_train_pkl=source_dir / "trn.pkl",
+        target_train_pkl=target_dir / "trn.pkl",
+        target_validation_pkl=target_dir / "vld.pkl",
+        target_test_pkl=target_dir / "test.pkl",
+        target_split_test_pkl=target_dir / "split_test.pkl",
+        downstream_test_pkl=gen_core / "anomaly_detection_pipeline" / "test" / dataset / target_env / "test.pkl",
+        downstream_test_dir=gen_core / "anomaly_detection_pipeline" / "test" / dataset / target_env,
+        downstream_attack_pkl=gen_core / "anomaly_detection_pipeline" / "attack" / dataset / f"labeled_{dataset}_{attack_suffix}.pkl",
+        downstream_attack_dir=gen_core / "anomaly_detection_pipeline" / "attack" / dataset,
+        gen_original_tof_checkpoint=gen_core / "gen_original_tof" / "check_model" / f"best_{dataset}_gpt-4o_SPPC.pth",
+        downstream_checkpoint=gen_core / "anomaly_detection_pipeline" / "check_model" / f"best_{dataset}_gpt-4o_SPPC.pth",
+        dictionary_py=resources_root / "dictionary.py",
+    )
+
+
+def check_matrix_cell_data_ready(dataset: str, scenario: str, root: Path) -> MatrixCellStatus:
+    paths = resolve_matrix_cell_paths(dataset, scenario, root)
+    data_requirements = {
+        "source_train_pkl": paths.source_train_pkl,
+        "target_test_pkl": paths.target_test_pkl,
+        "target_split_test_pkl": paths.target_split_test_pkl,
+        "dictionary_py": paths.dictionary_py,
+    }
+    attack_requirements = {
+        "downstream_test_pkl": paths.downstream_test_pkl,
+        "downstream_attack_pkl": paths.downstream_attack_pkl,
+    }
+    checkpoint_requirements = {
+        "gen_original_tof_checkpoint": paths.gen_original_tof_checkpoint,
+        "downstream_checkpoint": paths.downstream_checkpoint,
+    }
+    missing_data = tuple(missing_paths(data_requirements))
+    missing_attack = tuple(missing_paths(attack_requirements))
+    missing_checkpoint = tuple(missing_paths(checkpoint_requirements))
+    if missing_data:
+        status = STATUS_MISSING_DATA
+    elif missing_attack:
+        status = STATUS_MISSING_ATTACK
+    elif missing_checkpoint:
+        status = STATUS_MISSING_CHECKPOINT
+    else:
+        status = STATUS_DATA_READY
+    return MatrixCellStatus(
+        dataset=dataset,
+        scenario=scenario,
+        status=status,
+        missing_data=missing_data,
+        missing_attack=missing_attack,
+        missing_checkpoint=missing_checkpoint,
+        missing_generation=(),
+        missing_downstream=(),
+        paths=paths,
+    )
 
 
 def missing_paths(paths: dict[str, Path]) -> list[str]:

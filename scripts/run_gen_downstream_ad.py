@@ -168,10 +168,14 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
                 key: payload[key]
                 for key in (
                     "generator",
+                    "legacy_generation_name",
                     "generation_model",
+                    "generation_model_actual",
                     "api_llm",
                     "manual_generation",
                     "gpt55_generation_assisted",
+                    "codex_generation_assisted",
+                    "run_id",
                 )
                 if key in payload
             }
@@ -217,10 +221,14 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "gen_env": gen_env(args.scenario),
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "generator": provenance.get("generator", generator_for_variant(variant)),
+        "legacy_generation_name": provenance.get("legacy_generation_name", "gpt55_generation"),
         "generation_model": provenance.get("generation_model", "GPT-5.5"),
+        "generation_model_actual": provenance.get("generation_model_actual", provenance.get("generation_model", "GPT-5.5")),
+        "generation_run_id": provenance.get("run_id"),
         "api_llm": provenance.get("api_llm", False),
         "manual_generation": provenance.get("manual_generation", True),
         "gpt55_generation_assisted": provenance.get("gpt55_generation_assisted"),
+        "codex_generation_assisted": provenance.get("codex_generation_assisted"),
         "precision": payload.get("precision"),
         "recall": payload.get("recall"),
         "f1": f1(payload),
@@ -273,6 +281,9 @@ PER_SEED_FIELDS = [
     "used_causal_tof",
     "downstream_pipeline",
     "generator",
+    "legacy_generation_name",
+    "generation_model_actual",
+    "generation_run_id",
     "api_llm",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
@@ -374,10 +385,14 @@ def main() -> None:
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "gen_entrypoint": str((args.gen_root / "anomaly_detection_pipeline" / "models1.py").resolve()),
         "generator": provenance.get("generator", generator_for_variant(args.variant)),
+        "legacy_generation_name": provenance.get("legacy_generation_name", "gpt55_generation"),
         "generation_model": provenance.get("generation_model", "GPT-5.5"),
+        "generation_model_actual": provenance.get("generation_model_actual", provenance.get("generation_model", "GPT-5.5")),
+        "generation_run_id": provenance.get("run_id"),
         "api_llm": provenance.get("api_llm", False),
         "manual_generation": provenance.get("manual_generation", True),
         "gpt55_generation_assisted": provenance.get("gpt55_generation_assisted"),
+        "codex_generation_assisted": provenance.get("codex_generation_assisted"),
         "input_stage": input_stage_for_variant(args.variant),
         "used_gen_original_tof": used_gen_original_tof_for_variant(args.variant),
         "used_causal_tof": used_causal_tof_for_variant(args.variant),
@@ -416,6 +431,7 @@ def main() -> None:
         normalized = normalize_metrics(payload, args)
         (out_dir / "gen_downstream_ad_payload.json").write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
         (out_dir / "normalized_metrics.json").write_text(json.dumps(jsonable(normalized), ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "result.json").write_text(json.dumps(jsonable(normalized), ensure_ascii=False, indent=2), encoding="utf-8")
         (out_dir / "downstream_ad_metrics.json").write_text(json.dumps(jsonable(normalized), ensure_ascii=False, indent=2), encoding="utf-8")
         write_csv(out_dir / "metrics.csv", normalized)
         write_markdown(out_dir / "metrics.md", normalized)

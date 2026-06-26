@@ -95,12 +95,19 @@ def main() -> None:
     with open(args.out_pkl, "wb") as f:
         pickle.dump([seq.to_flat_numeric() for seq in sequences], f)
 
+    generation_metadata = read_generation_metadata(args.input_jsonl)
+    generation_model_actual = generation_metadata.get("generation_model_actual")
+    legacy_generation_name = generation_metadata.get("legacy_generation_name", "gpt55_generation")
+    generation_model = generation_model_actual or "GPT-5.5"
     generation_report = {
         "generator": "gpt55_generation",
-        "generation_model": "GPT-5.5",
+        "legacy_generation_name": legacy_generation_name,
+        "generation_model": generation_model,
+        "generation_model_actual": generation_model_actual or generation_model,
         "api_llm": False,
         "manual_generation": True,
         "gpt55_generation_assisted": True,
+        "codex_generation_assisted": generation_model_actual == "Codex",
         "num_generated": len(clean_rows),
         "dataset": args.dataset,
         "scenario": args.scenario,
@@ -116,8 +123,12 @@ def main() -> None:
         "resolved_causal_relation_prior_json": resolved_or_none(args.resolved_causal_relation_prior_json),
         "source_pkl": resolved_or_none(args.source_pkl),
         "target_pkl": resolved_or_none(args.target_pkl),
+        "generation_metadata_json": str((args.input_jsonl.parent / "generation_metadata.json").resolve())
+        if (args.input_jsonl.parent / "generation_metadata.json").exists()
+        else None,
+        "run_id": generation_metadata.get("run_id"),
         "notes": (
-            "Sequence content was authored by the GPT-5.5-assisted generation process from the prompt package, "
+            "Sequence content was authored by the recorded generation process from the prompt package, "
             "guarded GSS hints, causal relation prior, dictionary, and source/target distribution inspection. "
             "This script only validated and packed the authored JSONL."
         ),
@@ -230,6 +241,17 @@ def resolved_or_none(path: Path | None) -> str | None:
 def write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def read_generation_metadata(input_jsonl: Path) -> dict[str, Any]:
+    metadata = input_jsonl.parent / "generation_metadata.json"
+    if not metadata.exists():
+        return {}
+    try:
+        payload = json.loads(metadata.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def install_numpy_pickle_compat() -> None:

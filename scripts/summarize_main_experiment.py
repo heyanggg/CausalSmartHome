@@ -19,7 +19,9 @@ from causal_smart_home.experiment_matrix import (
     PROPOSED_VARIANT,
     REFERENCE_VARIANT,
     SEEDS,
+    STATUS_GENERATION_MISSING,
     experiment_grid,
+    check_matrix_cell_data_ready,
     load_reference_baseline,
 )
 
@@ -100,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reference-json", type=Path, default=REPO_ROOT / "causal_smart_home" / "resources" / "reference" / "smartgen_table3_ad.json")
     parser.add_argument("--metrics-glob", default="**/normalized_metrics.json")
     parser.add_argument("--matrix", default="all", choices=["all"])
+    parser.add_argument("--matrix-status-json", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "summary" / "matrix_status_report.json")
     parser.add_argument("--ablation", action="store_true", help="Also print ablation summary status; files are always written.")
     return parser.parse_args()
 
@@ -183,7 +186,18 @@ def reference_row(dataset: str, scenario: str, seed: int, reference: dict[tuple[
     }
 
 
-def missing_row(dataset: str, scenario: str, seed: int, variant: str) -> dict[str, Any]:
+def matrix_status_map(status_json: Path) -> dict[tuple[str, str, int], str]:
+    if not status_json.exists():
+        return {
+            (item.dataset, item.scenario, seed): check_matrix_cell_data_ready(item.dataset, item.scenario, REPO_ROOT).status
+            for item in experiment_grid()
+            for seed in SEEDS
+        }
+    payload = json.loads(status_json.read_text(encoding="utf-8"))
+    return {(row["dataset"], row["scenario"], int(row["seed"])): row["status"] for row in payload}
+
+
+def missing_row(dataset: str, scenario: str, seed: int, variant: str, status: str = STATUS_GENERATION_MISSING) -> dict[str, Any]:
     return {
         "dataset": dataset,
         "scenario": scenario,
@@ -195,7 +209,7 @@ def missing_row(dataset: str, scenario: str, seed: int, variant: str) -> dict[st
         "accuracy": None,
         "fpr": None,
         "fnr": None,
-        "status": "MISSING",
+        "status": status,
         "run_dir": "",
         "metrics_path": "",
     }
@@ -204,19 +218,22 @@ def missing_row(dataset: str, scenario: str, seed: int, variant: str) -> dict[st
 def build_main_per_seed_rows(
     metric_rows: list[dict[str, Any]],
     reference: dict[tuple[str, str], dict[str, Any]],
+    statuses: dict[tuple[str, str, int], str] | None = None,
 ) -> list[dict[str, Any]]:
     indexed = index_rows(metric_rows)
     rows = []
     for item in experiment_grid():
         for seed in SEEDS:
             rows.append(reference_row(item.dataset, item.scenario, seed, reference))
-            rows.append(indexed.get((item.dataset, item.scenario, seed, PROPOSED_VARIANT), missing_row(item.dataset, item.scenario, seed, PROPOSED_VARIANT)))
+            status = (statuses or {}).get((item.dataset, item.scenario, seed), STATUS_GENERATION_MISSING)
+            rows.append(indexed.get((item.dataset, item.scenario, seed, PROPOSED_VARIANT), missing_row(item.dataset, item.scenario, seed, PROPOSED_VARIANT, status)))
     return rows
 
 
 def build_main_vs_gen_rows(
     metric_rows: list[dict[str, Any]],
     reference: dict[tuple[str, str], dict[str, Any]],
+    statuses: dict[tuple[str, str, int], str] | None = None,
 ) -> list[dict[str, Any]]:
     indexed = index_rows(metric_rows)
     rows = []
@@ -234,7 +251,7 @@ def build_main_vs_gen_rows(
                 "proposed_precision": proposed.get("precision") if proposed else None,
                 "proposed_recall": proposed.get("recall") if proposed else None,
                 "proposed_f1": proposed.get("f1") if proposed else None,
-                "status": "success" if proposed else "MISSING",
+                "status": "success" if proposed else (statuses or {}).get((item.dataset, item.scenario, seed), STATUS_GENERATION_MISSING),
                 "proposed_metrics_path": proposed.get("metrics_path") if proposed else "",
             }
             for metric in ("precision", "recall", "f1"):
@@ -299,7 +316,7 @@ def build_ablation_rows(metric_rows: list[dict[str, Any]]) -> list[dict[str, Any
                 "ablation_precision": ablation.get("precision") if ablation else None,
                 "ablation_recall": ablation.get("recall") if ablation else None,
                 "ablation_f1": ablation.get("f1") if ablation else None,
-                "status": "success" if proposed and ablation else "MISSING",
+                "status": "success" if proposed and ablation else "MISSING_DOWNSTREAM_RESULT",
             }
             for metric in ("precision", "recall", "f1"):
                 proposed_value = row[f"proposed_{metric}"]
@@ -418,8 +435,9 @@ def main() -> None:
     args = parse_args()
     metric_rows = collect_per_seed_rows(args.runs_root.resolve(), args.metrics_glob)
     reference = load_reference_baseline(args.reference_json.resolve())
-    main_per_seed = build_main_per_seed_rows(metric_rows, reference)
-    main_vs_gen = build_main_vs_gen_rows(metric_rows, reference)
+    statuses = matrix_status_map(args.matrix_status_json.resolve())
+    main_per_seed = build_main_per_seed_rows(metric_rows, reference, statuses)
+    main_vs_gen = build_main_vs_gen_rows(metric_rows, reference, statuses)
     aggregate = build_aggregate_rows(metric_rows, reference)
     ablation = build_ablation_rows(metric_rows)
     write_outputs(args.out_dir.resolve(), main_per_seed, main_vs_gen, aggregate, ablation)
