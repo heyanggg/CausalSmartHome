@@ -48,6 +48,7 @@ outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
 outputs/main_experiment/us_st/
+outputs/main_experiment/us_tt/
 outputs/main_experiment/summary/
 ```
 
@@ -76,6 +77,9 @@ average table, and do not report deltas against Gen.
 | us | spring | 2024 | 0.930290 | 0.932015 | 0.958983 | 0.921197 | 1.000000 | 0.085544 | cuda |
 | us | spring | 2025 | 0.930290 | 0.919372 | 0.949174 | 0.903264 | 1.000000 | 0.107095 | cuda |
 | us | spring | 2026 | 0.930290 | 0.942647 | 0.960969 | 0.924870 | 1.000000 | 0.081233 | cuda |
+| us | night | 2024 | 0.876999 | 0.974948 | 0.975767 | 0.952681 | 1.000000 | 0.049670 | cuda |
+| us | night | 2025 | 0.876999 | 0.953463 | 0.980989 | 0.962687 | 1.000000 | 0.038760 | cuda |
+| us | night | 2026 | 0.876999 | 0.887728 | 0.889428 | 0.800874 | 1.000000 | 0.248636 | cuda |
 
 Gen paper/project anomaly-detection reference scores used for parallel
 comparison:
@@ -177,6 +181,13 @@ the experiment to CPU fallback.
   short 1-10 event length distribution. The stable rule uses 240 pre-TOF rows,
   Gen TOF keeps 216, and Causal-TOF uses `mode=filter --min-weight 0.2`, keeping
   192 rows for each seed.
+- US-night downstream AD is time-slot-based: `TimeSeriesDataset3` uses
+  `hour_slot`, target normal is restricted to `0/1/6/7`, and attack samples move
+  the same behavior into `2/3/4/5`. The stable rule uses 300 pre-TOF rows with a
+  target-like short-sequence mix and no `2/3/4/5` hours. Gen TOF keeps
+  284 / 266 / 271 rows for seeds 2024 / 2025 / 2026. Default Causal-TOF
+  `mode=weight` duplicated harmful low-weight rows on seed2024, so the formal
+  setting is `mode=filter --min-weight 0.2`, keeping 225 / 216 / 217 rows.
 
 ## Checks
 

@@ -55,8 +55,8 @@ Codex 名称。
 - device
 
 当前已完成的 FR-ST / FR-spring、FR-TT / FR-night、FR-NT / FR-multiple 两个正式
-seed、SP-ST / SP-spring、SP-TT / SP-night、SP-NT / SP-multiple 与 US-ST /
-US-spring 结果：
+seed、SP-ST / SP-spring、SP-TT / SP-night、SP-NT / SP-multiple、US-ST /
+US-spring 与 US-TT / US-night 结果：
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -80,6 +80,9 @@ US-spring 结果：
 | us | spring | 2024 | 0.930290 | 0.932015 | 0.958983 | 0.921197 | 1.000000 | 0.085544 | cuda |
 | us | spring | 2025 | 0.930290 | 0.919372 | 0.949174 | 0.903264 | 1.000000 | 0.107095 | cuda |
 | us | spring | 2026 | 0.930290 | 0.942647 | 0.960969 | 0.924870 | 1.000000 | 0.081233 | cuda |
+| us | night | 2024 | 0.876999 | 0.974948 | 0.975767 | 0.952681 | 1.000000 | 0.049670 | cuda |
+| us | night | 2025 | 0.876999 | 0.953463 | 0.980989 | 0.962687 | 1.000000 | 0.038760 | cuda |
+| us | night | 2026 | 0.876999 | 0.887728 | 0.889428 | 0.800874 | 1.000000 | 0.248636 | cuda |
 
 本地结果位置：
 
@@ -91,6 +94,7 @@ outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
 outputs/main_experiment/us_st/
+outputs/main_experiment/us_tt/
 outputs/main_experiment/summary/
 ```
 
@@ -169,6 +173,18 @@ AirConditioner / Light / Fan / Television / Other / AirPurifier 等 target norma
 edges，但 `mode=weight` 会拉低 seed2024 F1；改用 `mode=filter --min-weight 0.2` 后
 三个 seed 均保留 192 条，proposed F1 为 0.958983 / 0.949174 / 0.960969，高于
 Gen paper/project US-spring 0.930290。
+
+US-night 和 US-spring 的坑不同。`TimeSeriesDataset3` 只取四元组里的 `hour_slot`，
+attack 是 time attack：target normal 只出现在 `0/1/6/7`，attack 把相同设备动作挪到
+`2/3/4/5`。正式生成必须先查 target normal、Gen 原 synthetic、设备/action 分布和
+attack 形态，不能照搬 US-spring 或 FR/SP-night。当前有效规则为 300 条 pre-TOF
+US-night normal，长度按 downstream target test 的短序列分布生成，hour slot 严格只用
+`0/1/6/7`，device/action 从 validator-legal 的 US-night target normal event pool
+重组。Gen 原 reference 在 `th=0.919` 下为 89 条 pre-TOF、84 条 TOF 后；本次三 seed
+Gen TOF 后为 284 / 266 / 271。默认 Causal-TOF `mode=weight` 会重复采样低权重样本，
+seed2024 proposed 只到 0.886260；诊断后正式改用
+`mode=filter --min-weight 0.2`，Causal-TOF 后为 225 / 216 / 217，proposed F1 为
+0.975767 / 0.980989 / 0.889428，均高于 Gen paper/project US-night 0.876999。
 
 Gen 原论文/项目的异常检测参考 F1：
 
