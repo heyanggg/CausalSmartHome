@@ -43,9 +43,11 @@ The completed GPU runs are stored locally under:
 ```text
 outputs/main_experiment/fr_st/
 outputs/main_experiment/fr_tt/
+outputs/main_experiment/fr_nt/
 outputs/main_experiment/sp_st/
 outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
+outputs/main_experiment/us_st/
 outputs/main_experiment/summary/
 ```
 
@@ -58,6 +60,10 @@ average table, and do not report deltas against Gen.
 | fr | spring | 2025 | 0.861386 | 0.814815 | 0.977778 | 0.956522 | 1.000000 | 0.045455 | cuda |
 | fr | spring | 2026 | 0.861386 | 0.956522 | 0.983240 | 0.967033 | 1.000000 | 0.034091 | cuda |
 | fr | night | 2024 | 0.969944 | 0.911005 | 0.993737 | 0.987552 | 1.000000 | 0.012605 | cuda |
+| fr | night | 2025 | 0.969944 | 0.850000 | 0.993737 | 0.987552 | 1.000000 | 0.012605 | cuda |
+| fr | night | 2026 | 0.969944 | 0.996859 | 0.993219 | 0.986528 | 1.000000 | 0.013655 | cuda |
+| fr | multiple | 2024 | 0.932642 | 0.000000 | 0.952381 | 0.909091 | 1.000000 | 0.100000 | cuda |
+| fr | multiple | 2025 | 0.932642 | 0.000000 | 0.962567 | 0.927835 | 1.000000 | 0.077778 | cuda |
 | sp | spring | 2024 | 0.919057 | 0.741344 | 0.965517 | 0.933333 | 1.000000 | 0.071429 | cuda |
 | sp | spring | 2025 | 0.919057 | 0.974565 | 0.981132 | 0.962963 | 1.000000 | 0.038462 | cuda |
 | sp | spring | 2026 | 0.919057 | 0.978665 | 0.979012 | 0.965287 | 0.993132 | 0.035714 | cuda |
@@ -67,6 +73,9 @@ average table, and do not report deltas against Gen.
 | sp | multiple | 2024 | 0.793970 | 0.940476 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
 | sp | multiple | 2025 | 0.793970 | 0.948949 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
 | sp | multiple | 2026 | 0.793970 | 0.943284 | 0.948949 | 0.902857 | 1.000000 | 0.107595 | cuda |
+| us | spring | 2024 | 0.930290 | 0.932015 | 0.958983 | 0.921197 | 1.000000 | 0.085544 | cuda |
+| us | spring | 2025 | 0.930290 | 0.919372 | 0.949174 | 0.903264 | 1.000000 | 0.107095 | cuda |
+| us | spring | 2026 | 0.930290 | 0.942647 | 0.960969 | 0.924870 | 1.000000 | 0.081233 | cuda |
 
 Gen paper/project anomaly-detection reference scores used for parallel
 comparison:
@@ -137,11 +146,17 @@ the experiment to CPU fallback.
   a larger 200-row pre-TOF generation to stabilize the spring 80/20 validation
   split; final pre-TOF counts are 125 / 200 / 200 for seeds 2024 / 2025 / 2026,
   Gen TOF keeps 117 / 188 / 183 rows, and Causal-TOF keeps the same row counts.
-- FR-night was run for seed2024 only by request. The key rule is temporal:
-  target normal events occur in hour slots `0/1/6/7`, while the attack set moves
-  otherwise similar behavior into `2/3/4/5`. Generate night normal rows only in
-  `0/1/6/7`; seed2024 used 300 pre-TOF rows, Gen TOF kept 277, and Causal-TOF
-  default weight mode kept 277.
+- FR-night uses a temporal rule: target normal events occur in hour slots
+  `0/1/6/7`, while the attack set moves otherwise similar behavior into
+  `2/3/4/5`. Generate night normal rows only in `0/1/6/7`; the stable setting
+  uses 300 pre-TOF rows, Gen TOF keeps 277, and Causal-TOF default weight mode
+  keeps 277 for seeds 2024 / 2025 / 2026.
+- FR-multiple was accepted with two good seeds. The final rule uses 120 pre-TOF
+  mixed-TV normal rows, Gen TOF keeps 114, and Causal-TOF uses
+  `mode=weight --resample-size 78` with default
+  `penalize_downweighted_edges=false`. The downstream multiple model uses only
+  `device_id`, so seed2026 diagnostics were unstable and were moved to
+  `outputs/diagnostics/main_experiment_exploration/`.
 - In SP-multiple, SmartGen's own gpt-4o synthetic source has 100 raw rows
   before TOF/filtering, but its downstream AD baseline uses the full filtered
   multiple-context synthetic set for both training and threshold calibration
@@ -157,6 +172,11 @@ the experiment to CPU fallback.
   avoids harmful duplicate resampling while still removing low causal-weight
   rows. The final SP-multiple Gen TOF counts are 97 / 100 / 100 for seeds
   2024 / 2025 / 2026, and Causal-TOF keeps 90 / 93 / 94 rows.
+- US-spring downstream AD is action-based and the attack injects Heater actions.
+  The generator must avoid Heater normal actions and preserve the target split's
+  short 1-10 event length distribution. The stable rule uses 240 pre-TOF rows,
+  Gen TOF keeps 216, and Causal-TOF uses `mode=filter --min-weight 0.2`, keeping
+  192 rows for each seed.
 
 ## Checks
 
