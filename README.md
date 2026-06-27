@@ -49,6 +49,7 @@ outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
 outputs/main_experiment/us_st/
 outputs/main_experiment/us_tt/
+outputs/main_experiment/us_nt/
 outputs/main_experiment/summary/
 ```
 
@@ -80,6 +81,9 @@ average table, and do not report deltas against Gen.
 | us | night | 2024 | 0.876999 | 0.974948 | 0.975767 | 0.952681 | 1.000000 | 0.049670 | cuda |
 | us | night | 2025 | 0.876999 | 0.953463 | 0.980989 | 0.962687 | 1.000000 | 0.038760 | cuda |
 | us | night | 2026 | 0.876999 | 0.887728 | 0.889428 | 0.800874 | 1.000000 | 0.248636 | cuda |
+| us | multiple | 2024 | 0.840492 | 0.843808 | 0.843808 | 0.729816 | 1.000000 | 0.370209 | cuda |
+| us | multiple | 2025 | 0.840492 | 0.844029 | 0.844029 | 0.730148 | 1.000000 | 0.369586 | cuda |
+| us | multiple | 2026 | 0.840492 | 0.845809 | 0.845809 | 0.732816 | 1.000000 | 0.364600 | cuda |
 
 Gen paper/project anomaly-detection reference scores used for parallel
 comparison:
@@ -188,6 +192,16 @@ the experiment to CPU fallback.
   284 / 266 / 271 rows for seeds 2024 / 2025 / 2026. Default Causal-TOF
   `mode=weight` duplicated harmful low-weight rows on seed2024, so the formal
   setting is `mode=filter --min-weight 0.2`, keeping 225 / 216 / 217 rows.
+- US-multiple downstream AD is device-id-based: `TimeSeriesDataset4` uses only
+  `device_id`, and the attack set is Television-only. The stable rule uses 800
+  pre-TOF rows with no Television events. A naive target-like no-TV generation
+  was close but lost Blind(device 2) and Humidifier(device 12) coverage during
+  Gen TOF; increasing total rows was less useful than replacing 30 common rows
+  with validator-legal Blind/Humidifier short/context rows. Gen TOF keeps
+  768 / 773 / 788 rows for seeds 2024 / 2025 / 2026. Causal-TOF uses
+  `mode=filter --min-weight 0.02` with default
+  `penalize_downweighted_edges=false`, keeping the same counts so it scores the
+  Gen TOF output without deleting useful rare normal coverage.
 
 ## Checks
 

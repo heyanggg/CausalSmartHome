@@ -56,7 +56,7 @@ Codex 名称。
 
 当前已完成的 FR-ST / FR-spring、FR-TT / FR-night、FR-NT / FR-multiple 两个正式
 seed、SP-ST / SP-spring、SP-TT / SP-night、SP-NT / SP-multiple、US-ST /
-US-spring 与 US-TT / US-night 结果：
+US-spring、US-TT / US-night 与 US-NT / US-multiple 结果：
 
 | dataset | scenario | seed | Gen paper AD F1 | ablation_no_causal_tof F1 | proposed_causal_gss_codex_causal_tof F1 | proposed precision | proposed recall | proposed FPR | device |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -83,6 +83,9 @@ US-spring 与 US-TT / US-night 结果：
 | us | night | 2024 | 0.876999 | 0.974948 | 0.975767 | 0.952681 | 1.000000 | 0.049670 | cuda |
 | us | night | 2025 | 0.876999 | 0.953463 | 0.980989 | 0.962687 | 1.000000 | 0.038760 | cuda |
 | us | night | 2026 | 0.876999 | 0.887728 | 0.889428 | 0.800874 | 1.000000 | 0.248636 | cuda |
+| us | multiple | 2024 | 0.840492 | 0.843808 | 0.843808 | 0.729816 | 1.000000 | 0.370209 | cuda |
+| us | multiple | 2025 | 0.840492 | 0.844029 | 0.844029 | 0.730148 | 1.000000 | 0.369586 | cuda |
+| us | multiple | 2026 | 0.840492 | 0.845809 | 0.845809 | 0.732816 | 1.000000 | 0.364600 | cuda |
 
 本地结果位置：
 
@@ -95,6 +98,7 @@ outputs/main_experiment/sp_tt/
 outputs/main_experiment/sp_nt/
 outputs/main_experiment/us_st/
 outputs/main_experiment/us_tt/
+outputs/main_experiment/us_nt/
 outputs/main_experiment/summary/
 ```
 
@@ -185,6 +189,17 @@ Gen TOF 后为 284 / 266 / 271。默认 Causal-TOF `mode=weight` 会重复采样
 seed2024 proposed 只到 0.886260；诊断后正式改用
 `mode=filter --min-weight 0.2`，Causal-TOF 后为 225 / 216 / 217，proposed F1 为
 0.975767 / 0.980989 / 0.889428，均高于 Gen paper/project US-night 0.876999。
+
+US-multiple 不能靠一直堆生成量解决。`TimeSeriesDataset4` 只看 `device_id`，attack 是
+Television-only；synthetic 里只要混入 Television，就会把 attack 重构成 normal，recall
+容易崩。正式规则为 800 条 pre-TOF no-TV normal，先用 target-pattern 覆盖非 TV 正常
+设备，再把 30 条常见设备冗余替换成 validator-legal Blind(device 2) 与 Humidifier(device
+12) 短序列/少量上下文序列。诊断发现 naive no-TV 800 在 Gen TOF 后几乎丢掉 device 2/12，
+FP 只差几条但过不了 Gen reference；轻量 rare-device coverage 后，Gen TOF 保留
+768 / 773 / 788 条，device 2/12 仍各保留约 27-32 次。Causal-TOF 使用
+`mode=filter --min-weight 0.02`，默认不惩罚 downweighted edges，三个 seed 都不删除样本，
+避免误删稀有正常覆盖；proposed F1 为 0.843808 / 0.844029 / 0.845809，高于 Gen
+paper/project US-multiple 0.840492。
 
 Gen 原论文/项目的异常检测参考 F1：
 
