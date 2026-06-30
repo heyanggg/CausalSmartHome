@@ -1,3 +1,5 @@
+"""测试 Causal-TOF 序列评分和加权重采样。"""
+
 import json
 
 from causal_smart_home.causal_tof import score_sequence_causal_tof, weighted_resample_sequences

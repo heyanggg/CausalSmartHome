@@ -1,3 +1,5 @@
+"""测试对源上下文因果边进行 target-distribution guard。"""
+
 import json
 
 from causal_smart_home.target_distribution_guard import TargetDistributionGuardConfig, apply_target_distribution_guard, compute_device_distribution

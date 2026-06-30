@@ -1,3 +1,5 @@
+"""测试 Gen downstream AD 包装器及 dry-run 路径。"""
+
 import json
 import pickle
 

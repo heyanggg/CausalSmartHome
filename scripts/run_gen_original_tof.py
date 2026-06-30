@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+"""仓库内拷贝的 Gen 原始两阶段 TOF 步骤的 CLI 包装器。"""
+
 from __future__ import annotations
 
 import argparse
@@ -14,6 +16,7 @@ from causal_smart_home.gen_original_tof import GenOriginalTOFConfig, run_gen_ori
 
 
 def default_gen_root() -> Path:
+    """返回仓库内拷贝的 Gen 代码根目录。"""
     return REPO_ROOT / "causal_smart_home" / "gen_core"
 
 

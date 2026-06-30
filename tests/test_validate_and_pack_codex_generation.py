@@ -1,3 +1,5 @@
+"""测试 Codex JSONL 严格校验和 Gen pickle 打包。"""
+
 from __future__ import annotations
 
 import json

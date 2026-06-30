@@ -1,12 +1,16 @@
 #!/usr/bin/env python
+"""Gen 原始 TOF 之后运行 Causal-TOF 的命令行入口。
+
+脚本会读取 Gen-TOF 输出 pkl，加载 guarded causal-reweighted hints，对每条生成
+序列打分，并同时写出审计分数和下游 Gen AD 使用的最终 pkl。
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
-import pickle
 import sys
 from pathlib import Path
-from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -77,6 +81,8 @@ def main() -> None:
         penalize_downweighted_edges=args.penalize_downweighted_edges,
     )
 
+    # 分数始终保存，便于事后审计。最终 pkl 根据 mode 决定：filter 模式直接删除
+    # 低权重行；rank/weight 模式会走加权重采样。
     out_scores = Path(args.out_scores).resolve()
     out_weights = Path(args.out_weights).resolve()
     out_resampled = Path(args.out_weighted_resampled_pkl).resolve()
@@ -102,9 +108,16 @@ def main() -> None:
         )
         resampling_config["mode"] = args.mode
         save_pickle_sequences(out_resampled, resampled)
+    resampling_config["seed"] = int(args.seed)
+    resampling_config["temperature"] = float(args.temperature)
+    resampling_config["alpha_rec"] = float(args.alpha_rec)
+    resampling_config["beta_violation"] = float(args.beta_violation)
+    resampling_config["gamma_dist"] = float(args.gamma_dist)
+    resampling_config["min_weight"] = float(args.min_weight)
+    resampling_config["max_copies"] = int(args.max_copies)
+    resampling_config["resample_size"] = int(args.resample_size) if args.resample_size is not None else None
     resampling_config["input_stage"] = args.input_stage
     resampling_config["penalize_downweighted_edges"] = bool(args.penalize_downweighted_edges)
-    resampling_config["beta_violation"] = float(args.beta_violation)
     resampling_config["used_gen_original_tof"] = args.input_stage == "gen_original_tof"
     resampling_config["used_causal_tof"] = True
     resampling_config["num_generated_after_gen_tof"] = len(sequences) if args.input_stage == "gen_original_tof" else None
@@ -119,6 +132,7 @@ def main() -> None:
 
 
 def load_target_distribution(args: argparse.Namespace) -> dict[str, float] | None:
+    """加载或计算 target-normal 设备分布，作为 Causal-TOF 分布惩罚来源。"""
     if args.target_distribution_json:
         path = Path(args.target_distribution_json).resolve()
         if not path.exists():

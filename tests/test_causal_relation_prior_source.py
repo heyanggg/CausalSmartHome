@@ -1,3 +1,5 @@
+"""测试从 JSON、矩阵和 pkl 解析 causal-relation prior。"""
+
 import importlib.util
 import json
 import pickle
@@ -8,11 +10,10 @@ from causal_smart_home.causal_prior import CausalPrior
 from causal_smart_home.causal_relation_prior_source import resolve_causal_relation_prior
 
 
-
 def make_toy_normal_sequences(num_sequences=20, seed=2024, sequence_length=10):
-    """Local toy flat-quadruple sequence generator for tests.
+    """测试用本地 toy 扁平四元组序列生成器。
 
-    Returns Gen-style flat sequences:
+    返回 Gen 风格扁平序列：
     [day, hour_slot, device_id, action_id, ...]
     """
     import random
@@ -24,7 +25,7 @@ def make_toy_normal_sequences(num_sequences=20, seed=2024, sequence_length=10):
         day = i % 7
         for t in range(sequence_length):
             hour_slot = t % 8
-            # Deterministic but non-constant device/action pattern.
+            # 使用确定但非恒定的 device/action 模式，方便测试 prior 挖掘和排序。
             device = (t + i) % 4 + 1
             action = device * 10 + (t % 3)
             if rng.random() < 0.15:

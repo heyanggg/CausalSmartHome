@@ -1,3 +1,9 @@
+"""仓库内拷贝的 Gen 下游异常检测模型和数据集定义。
+
+CausalSmartHome 导入这里的类来运行原始 Gen downstream AD 协议。项目外围只做
+配置、路径和溯源包装；这个文件中的模型/数据集行为应尽量保持 Gen 原样。
+"""
+
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset

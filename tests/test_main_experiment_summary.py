@@ -1,3 +1,5 @@
+"""测试主实验 per-seed metrics 的保留与汇总逻辑。"""
+
 import json
 
 from scripts.summarize_main_experiment import (

@@ -1,8 +1,14 @@
+"""Gen 原始两阶段 TOF 的包装器。
+
+本项目刻意不重写 SmartGen/Gen 的 TOF 逻辑。这个包装器只负责把生成数据复制到
+vendored Gen 代码期望的目录结构中，调用 ``security_check.py``，然后把 Gen
+选择出的结果复制回 CausalSmartHome 的运行目录，并写出审计报告。
+"""
+
 from __future__ import annotations
 
 import json
 import os
-import pickle
 import shlex
 import shutil
 import subprocess
@@ -16,13 +22,13 @@ from .gen_downstream_ad import DEFAULT_THRESHOLDS, env_for_scenario, load_pickle
 
 @dataclass(frozen=True)
 class GenOriginalTOFConfig:
-    """Configuration for invoking Gen's original two-stage TOF.
+    """调用 Gen 原始 two-stage TOF 所需的配置。
 
-    The wrapper does not reimplement TOF. For real runs it copies the fresh
-    generated pkl into the Gen path layout and calls
-    ``security_check.security_check(dataset, env, threshold, method, model)``.
-    The original script then performs reconstruction-loss outlier detection
-    followed by utility/value selection.
+    包装器不重新实现 TOF。真实运行时，它会把 fresh generated pkl 放进 Gen 的
+    固定路径布局，然后调用
+    ``security_check.security_check(dataset, env, threshold, method, model)``。
+    原始脚本内部先做 reconstruction-loss outlier detection，再做 utility/value
+    selection。
     """
 
     gen_root: Path
@@ -46,12 +52,13 @@ def gen_env_for_scenario(scenario: str) -> str:
 
 
 def gen_code_dir(gen_root: str | Path) -> Path:
+    """定位包含 Gen ``security_check.py`` 的代码目录。"""
     root = Path(gen_root).resolve()
     candidates = [root / "gen_original_tof", root]
     for candidate in candidates:
         if (candidate / "security_check.py").exists():
             return candidate
-    # Return the most likely path for clear downstream errors.
+    # 如果没找到，返回最可能的路径，让后续错误信息能直接指出缺失文件位置。
     return root / "gen_original_tof"
 
 
@@ -69,6 +76,7 @@ def resolve_security_check_path(config: GenOriginalTOFConfig) -> Path:
 
 
 def expected_gen_tof_paths(code_dir: Path, dataset: str, env: str, threshold: str, method: str, model: str) -> dict[str, Path]:
+    """复原 Gen TOF 原脚本硬编码使用的输入/输出文件名。"""
     base = f"{dataset}_{env}_generation_{method}_th={threshold}_{model}_seq"
     filter_dir = code_dir / "filter_data" / dataset / env
     return {
@@ -94,6 +102,7 @@ def count_pickle_items(path: str | Path) -> int | None:
 
 
 def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
+    """执行 Gen TOF、收集溯源信息，并返回机器可读报告。"""
     env = gen_env_for_scenario(config.scenario)
     threshold = config.threshold or DEFAULT_THRESHOLDS[(config.dataset, env)]
     out_dir = config.out_dir.resolve()
@@ -137,6 +146,8 @@ def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
     paths = expected_gen_tof_paths(code_dir, config.dataset, env, threshold, config.method, config.model)
     paths["input"].parent.mkdir(parents=True, exist_ok=True)
     paths["check_model"].parent.mkdir(parents=True, exist_ok=True)
+    # Gen 原脚本只会从自己的 filter_data 路径读文件，因此先把生成 pkl 暂存到
+    # 那个固定位置，再调用原始 security_check 函数。
     shutil.copyfile(config.generated_pkl.resolve(), paths["input"])
 
     env_vars = os.environ.copy()
@@ -172,6 +183,7 @@ def run_gen_original_tof(config: GenOriginalTOFConfig) -> dict[str, Any]:
 
     selected_source = None
     if paths["utility_selected"].exists():
+        # Gen 两阶段 TOF 的优先最终产物：已经通过过滤并完成效用选择。
         selected_source = paths["utility_selected"]
         output_stage = "utility_selected"
     elif paths["filter_output"].exists():

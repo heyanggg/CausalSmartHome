@@ -268,7 +268,7 @@ scripts/validate_and_pack_codex_generation.py
 
 ## 2026-06-26 修复记录
 
-这次排查解决了两个关键问题，后续九格实验不能再犯。
+这次排查解决了两个关键问题，后续主实验不能再犯。
 
 第一，`fr_st` 曾出现 raw causal edge 数为 0，导致 reweighted hints 实际退化成 Gen
 transition GSS。根因是 GCAD 风格梯度因果权重 raw scale 很小，旧逻辑先执行
@@ -314,20 +314,38 @@ GEN_MAIN_DATA_STATUS: ok
 cells: 9 (fr, sp, us x spring, night, multiple)
 ```
 
-## 后续九格执行清单
+## 实验入口与阶段运行清单
 
-每个 cell 都按同一口径做：
+正式项目入口优先使用 `scripts/main_*.py`。底层 `scripts/run_*.py` 仍然保留，
+用于调试单个阶段或显式指定全部路径。
+
+常用入口：
+
+```bash
+python scripts/main_prepare_generation.py --dataset us --scenario st --seed 2024
+python scripts/main_run_causal_tof_and_ad.py --dataset us --scenario st --seed 2024 --device cuda --cuda-visible-devices 0
+python scripts/main_run_downstream_ad.py --dataset us --scenario st --seed 2024 --variant proposed_causal_gss_codex_causal_tof --device cuda --cuda-visible-devices 0
+```
+
+`scenario` 可以写短名 `st/tt/nt` 或长名 `spring/night/multiple`，入口会统一映射到
+目录短名，例如 `us_st`。
+
+每个 cell 的完整阶段口径：
 
 1. 检查本地 Gen 数据：`python scripts/check_gen_main_data.py`。
-2. 构建 causal relation prior。
-3. 运行 `scripts/build_causal_gss_prompt.py`，默认添加 causal edges，默认 `guard-mode=downweight`。
-4. 用 `scripts/build_codex_generation_package.py` 生成 Codex 输入包。
-5. Codex 生成 JSONL 后，用 `scripts/validate_and_pack_codex_generation.py` 打包 pkl。
-6. 用 GPU 跑 `scripts/run_gen_original_tof.py`。
-7. 跑 `scripts/run_causal_tof.py`。
-8. 用 GPU 分别跑 `scripts/run_gen_downstream_ad.py` 的 proposed 和 ablation。
-9. 用 `scripts/summarize_main_experiment.py` 输出 per-seed summary。
-10. 在 README/实验记录中逐 seed 列出结果，并把 Gen paper AD F1 并排列出。
+2. 用 `main_prepare_generation.py` 构建 causal-GSS prompt 和 generation package。
+3. Codex 生成 JSONL 后，用 `scripts/validate_and_pack_codex_generation.py` 打包 pkl。
+4. 用 GPU 跑 `scripts/run_gen_original_tof.py`。
+5. 用 `scripts/main_run_causal_tof_and_ad.py` 跑 Causal-TOF 和 proposed downstream AD。
+6. 如需 ablation，用 `scripts/main_run_downstream_ad.py --variant ablation_no_causal_tof`。
+7. 用 `scripts/summarize_main_experiment.py` 或 `csh summarize` 输出 per-seed summary。
+8. 在 README/实验记录中逐 seed 列出结果，并把 Gen paper AD F1 并排列出。
+
+注意：`main_run_causal_tof_and_ad.py` 会优先读取已有
+`causal_tof/*.config.json`，命令行显式参数覆盖配置，最后才使用内置默认值。
+已有 cell 的 target-normal pkl 优先来自 `causal_gss/config.json`；新 cell 使用
+项目内主实验映射，例如 `fr_st/fr_tt/sp_st` 使用 `split_test.pkl`，US 和 multiple
+单元格使用 `test.pkl`。
 
 每个 cell 完成后必须保存：
 

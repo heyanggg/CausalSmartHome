@@ -117,6 +117,9 @@ nt = multiple
 Core scripts:
 
 ```text
+scripts/main_prepare_generation.py
+scripts/main_run_causal_tof_and_ad.py
+scripts/main_run_downstream_ad.py
 scripts/build_causal_gss_prompt.py
 scripts/build_codex_generation_package.py
 scripts/validate_and_pack_codex_generation.py
@@ -127,9 +130,153 @@ scripts/summarize_main_experiment.py
 scripts/check_gen_main_data.py
 ```
 
+### 实验入口与运行方式
+
+所有命令都从仓库根目录运行。建议用 `python` 调脚本，因为项目被拷贝到不同
+文件系统后，不一定保留脚本的可执行权限：
+
+```bash
+python scripts/check_gen_main_data.py
+```
+
+推荐优先使用 `scripts/main_*.py` 作为实验级入口。它们只要求填写
+`dataset/scenario/seed` 等实验坐标，会按项目约定自动定位阶段输入；底层
+`scripts/run_*.py` 保留给调试或单独执行某个阶段。
+
+`scenario` 可以写短名 `st/tt/nt`，也可以写长名 `spring/night/multiple`；
+实验目录会统一规范化为短名，例如 `us_st`。
+
+对单个 seed，下游 AD 阶段常用这两个输入：
+
+```text
+outputs/main_experiment/{dataset}_{scenario}/seed{seed}/gen_original_tof/gen_tof.pkl
+outputs/main_experiment/{dataset}_{scenario}/seed{seed}/causal_tof/generated_gen_tof_causal_tof.pkl
+```
+
+第一个用于不带 Causal-TOF 的 ablation；第二个用于 proposed 方法。
+
+运行一个 ablation 下游 AD：
+
+```bash
+python scripts/main_run_downstream_ad.py \
+  --dataset us \
+  --scenario st \
+  --seed 2024 \
+  --variant ablation_no_causal_tof \
+  --device cuda \
+  --cuda-visible-devices 0
+```
+
+运行一个 proposed 下游 AD：
+
+```bash
+python scripts/main_run_downstream_ad.py \
+  --dataset us \
+  --scenario st \
+  --seed 2024 \
+  --variant proposed_causal_gss_codex_causal_tof \
+  --device cuda \
+  --cuda-visible-devices 0
+```
+
+每个 AD 运行的底层命令会保存到：
+
+```text
+{runs_root}/{dataset}_{scenario}/seed{seed}/downstream_ad/{variant}/run_command.sh
+```
+
+运行 Causal-TOF，并继续执行 proposed 下游 AD：
+
+```bash
+python scripts/main_run_causal_tof_and_ad.py \
+  --dataset us \
+  --scenario st \
+  --seed 2024 \
+  --device cuda \
+  --cuda-visible-devices 0
+```
+
+每组实验的 Causal-TOF 参数不完全一样。`main_run_causal_tof_and_ad.py`
+默认会读取
+`outputs/main_experiment/{dataset}_{scenario}/seed{seed}/causal_tof/*.config.json`
+中的阶段配置；命令行显式填写的参数优先级更高。例如 US-spring 的配置会解析成
+`mode=filter --min-weight 0.2`，FR-multiple 的配置会解析成
+`mode=weight --resample-size 78`。如果要完全忽略已有阶段配置，可以加
+`--ignore-causal-tof-config`。
+
+target-normal pkl 也按主实验口径推断：已有 cell 优先使用
+`causal_gss/config.json` 里保存的 `target_pkl`；新 cell 默认使用项目内映射
+（例如 `fr_st/fr_tt/sp_st` 使用 `split_test.pkl`，US 和 multiple 单元格使用
+`test.pkl`）。
+
+运行 Gen 原始 TOF 阶段时，需要提供 pre-TOF generated pkl：
+
+```bash
+python scripts/run_gen_original_tof.py \
+  --generated-pkl outputs/main_experiment/us_st/seed2024/codex_generation/generated_codex.pkl \
+  --dataset us \
+  --scenario st \
+  --seed 2024 \
+  --out-dir outputs/main_runs/us_st/seed2024/gen_original_tof \
+  --out-pkl outputs/main_runs/us_st/seed2024/gen_original_tof/gen_tof.pkl \
+  --cuda-visible-devices 0
+```
+
+如果某个 cell 没有标准路径下的 pre-TOF generated pkl，则从 Gen TOF 或
+Causal-TOF 之后的阶段入口开始运行。
+
+准备 causal-GSS prompt 和 generation package：
+
+```bash
+python scripts/main_prepare_generation.py \
+  --dataset us \
+  --scenario st \
+  --seed 2024
+```
+
+从这个 package 生成 JSONL 后，再校验并打包成 Gen 可读的 pkl：
+
+```bash
+python scripts/validate_and_pack_codex_generation.py \
+  --input-jsonl outputs/main_runs/us_st/seed2024/codex_generation/generated_codex.jsonl \
+  --out-pkl outputs/main_runs/us_st/seed2024/codex_generation/generated_codex.pkl \
+  --out-validation-report outputs/main_runs/us_st/seed2024/codex_generation/validation_report.json \
+  --out-generation-report outputs/main_runs/us_st/seed2024/codex_generation/generation_report.json \
+  --dictionary-py causal_smart_home/resources/gen_data/dictionary.py \
+  --dataset us \
+  --scenario st \
+  --scenario-key us_st \
+  --seed 2024 \
+  --expected-count 240 \
+  --source-pkl causal_smart_home/resources/gen_data/us/winter/trn.pkl \
+  --target-pkl causal_smart_home/resources/gen_data/us/spring/test.pkl \
+  --guard-report-json outputs/main_runs/us_st/seed2024/codex_generation_package/guard_report.json \
+  --guarded-hints-json outputs/main_runs/us_st/seed2024/codex_generation_package/guarded_reweighted_gss_hints.json \
+  --resolved-causal-relation-prior-json outputs/main_runs/us_st/seed2024/codex_generation_package/resolved_causal_relation_prior.json
+```
+
+实验完成后生成 per-seed 汇总：
+
+```bash
+python scripts/summarize_main_experiment.py \
+  --runs-root outputs/main_runs \
+  --out-dir outputs/main_runs/summary
+```
+
+下面这些 JSON 是参数和溯源的准确信息来源：
+
+```text
+causal_gss/config.json
+codex_generation/generation_report.json
+gen_original_tof/gen_original_tof_report.json
+causal_tof/*.config.json
+downstream_ad/{variant}/config.json
+downstream_ad/{variant}/normalized_metrics.json
+```
+
 GPU execution is required for Gen original TOF and Gen downstream AD. Results
 must record `device = cuda` and `requested_device = cuda`. If a managed sandbox
-hides CUDA devices, rerun the experiment command with GPU access; do not change
+hides CUDA devices, run the experiment command with GPU access; do not change
 the experiment to CPU fallback.
 
 ## Guardrails
@@ -218,25 +365,36 @@ spring/night/multiple Gen data required by the main experiments.
 
 ## Project Structure
 
-```text
-causal_smart_home/
-  causal_prior.py
-  causal_relation_adapter.py
-  causal_relation_prior_source.py
-  causal_gss.py
-  causal_gss_reweight.py
-  causal_tof.py
-  gen_core/
-  resources/gen_data/
-scripts/
-  build_causal_gss_prompt.py
-  build_codex_generation_package.py
-  validate_and_pack_codex_generation.py
-  run_gen_original_tof.py
-  run_causal_tof.py
-  run_gen_downstream_ad.py
-  summarize_main_experiment.py
-  check_gen_main_data.py
-outputs/reference_gen/
-tests/
-```
+| path | role |
+| --- | --- |
+| `causal_smart_home/schema.py` | Gen 扁平四元组序列的基础解析、转换与校验。 |
+| `causal_smart_home/causal_prior.py` | 轻量 causal prior 数据结构和边过滤工具。 |
+| `causal_smart_home/causal_relation_adapter.py` | 从序列中抽取候选因果关系的适配层。 |
+| `causal_smart_home/causal_relation_prior_source.py` | 统一外部 prior、矩阵 prior 和本地 fallback prior 的来源。 |
+| `causal_smart_home/target_distribution_guard.py` | 用目标域设备分布约束 causal hints，避免提示偏离目标正常分布。 |
+| `causal_smart_home/causal_gss.py` | GSS 解释、设备名映射、prompt 相关辅助函数。 |
+| `causal_smart_home/causal_gss_reweight.py` | 将 GCAD prior 注入 Gen GSS 转移图，输出 guarded/reweighted hints。 |
+| `causal_smart_home/causal_tof.py` | Causal-TOF 打分、加权、过滤和重采样实现。 |
+| `causal_smart_home/gen_original_tof.py` | Gen 原始 TOF 的项目内包装。 |
+| `causal_smart_home/gen_downstream_ad.py` | Gen 内置 downstream AD 的项目内包装。 |
+| `causal_smart_home/experiment_paths.py` | 主实验 dataset/scenario/seed 的默认路径推断。 |
+| `causal_smart_home/json_utils.py` | JSON 输出时的 Path、NumPy 标量、NaN 统一处理。 |
+| `causal_smart_home/gen_core/anomaly_detection_pipeline/` | vendored Gen 下游 AD 代码。 |
+| `causal_smart_home/gen_core/gen_original_tof/` | vendored Gen 原始 TOF 代码。 |
+| `causal_smart_home/resources/gen_data/` | FR/SP/US 的 Gen 数据和设备字典。 |
+| `scripts/main_prepare_generation.py` | 实验级入口：准备 causal-GSS prompt 与 generation package。 |
+| `scripts/main_run_causal_tof_and_ad.py` | 实验级入口：运行 Causal-TOF，并可继续运行 proposed AD。 |
+| `scripts/main_run_downstream_ad.py` | 实验级入口：运行单个 ablation/proposed 下游 AD。 |
+| `scripts/run_*.py` | 阶段级脚本：显式路径参数更多，适合调试单个阶段。 |
+| `scripts/summarize_main_experiment.py` | 收集 normalized metrics，生成 per-seed 正式汇总表。 |
+| `scripts/check_gen_main_data.py` | 检查本地 Gen 数据是否齐全。 |
+| `tests/` | 单元测试和管线行为测试。 |
+| `outputs/reference_gen/` | 小型 Gen 参考指标。 |
+| `docs/` | GCAD 接入说明和项目框架图。 |
+
+## Reading Notes And Framework Diagram
+
+- GCAD-to-Gen theory and code walkthrough:
+  [`docs/gcad_gen_integration_notes.md`](docs/gcad_gen_integration_notes.md)
+- Framework diagram:
+  [`docs/framework_diagram.svg`](docs/framework_diagram.svg)

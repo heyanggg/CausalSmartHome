@@ -1,3 +1,16 @@
+"""解析并统一 Gen 集成流程使用的 causal-relation/GCAD 先验。
+
+本项目允许三种先验来源，优先级从高到低为：
+
+1. 已存在的 resolved/causal prior JSON；
+2. 已存在的矩阵文件；
+3. 从源上下文 Gen pkl 通过 adapter fallback 现场挖掘。
+
+无论来源是哪一种，最终都会标准化成同一个 ``ResolvedCausalRelationPrior``
+结构。这样 target guard、GSS 重加权、prompt 构建、Causal-TOF 都不需要关心
+GCAD 信号到底来自外部产物还是本地轻量 miner。
+"""
+
 from __future__ import annotations
 
 import csv
@@ -17,11 +30,11 @@ from .schema import BehaviorSequence, load_numeric_sequences
 
 @dataclass
 class ResolvedCausalRelationPrior:
-    """Unified, JSON-serializable view of a causal relation prior.
+    """统一的、可 JSON 序列化的 causal relation prior 视图。
 
-    The object records where the causal matrix came from.  When the project has
-    to use the local compact adapter fallback, ``causal_relation_source`` says so
-    explicitly.
+    这个对象不仅保存矩阵和 top edges，也记录矩阵来源。若项目使用的是本地
+    compact adapter fallback，``causal_relation_source`` 会显式写出来，避免
+    后续报告把它误认为外部原版 GCAD 产物。
     """
 
     causal_relation_source: str
@@ -36,9 +49,11 @@ class ResolvedCausalRelationPrior:
 
     @property
     def np_matrix(self) -> np.ndarray:
+        """把 resolved prior 中的矩阵转成 ``float32`` NumPy 数组。"""
         return np.asarray(self.matrix, dtype=np.float32)
 
     def to_causal_prior(self) -> CausalPrior:
+        """转换回较小的 ``CausalPrior`` 类型，便于复用旧工具函数。"""
         return CausalPrior(
             matrix=self.matrix,
             channel_to_key=self.channels,
@@ -71,11 +86,11 @@ def resolve_causal_relation_prior(
     sparse_threshold: float = 0.001,
     seed: int = 2024,
 ) -> ResolvedCausalRelationPrior:
-    """Resolve a causal relation prior from an existing artifact or adapter call.
+    """从已有产物或 adapter 调用解析 causal relation prior。
 
-    Priority is deliberately simple: existing prior JSON, then existing matrix,
-    then the current project's causal relation adapter over source_pkl.
-    No new causal discovery algorithm is implemented here.
+    优先级故意保持简单：先用已有 prior JSON，再用已有矩阵，最后才对
+    ``source_pkl`` 调用项目内的 adapter。这个函数只负责“解析/标准化/保存”，
+    不在这里额外实现新的因果发现算法。
     """
 
     config = {
@@ -134,6 +149,7 @@ def _resolved_from_prior_json(
     fallback_threshold: float,
     config: dict[str, Any],
 ) -> ResolvedCausalRelationPrior:
+    """把已有 prior JSON 规范化为项目统一的 resolved prior 结构。"""
     if not path.exists():
         raise FileNotFoundError(f"prior_json not found: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -180,6 +196,7 @@ def _resolved_from_matrix_path(
     sparse_threshold: float,
     config: dict[str, Any],
 ) -> ResolvedCausalRelationPrior:
+    """加载矩阵产物，并在缺少 channels/top_edges 时自动补齐。"""
     if not path.exists():
         raise FileNotFoundError(f"prior_matrix_path not found: {path}")
     channels: list[str] | None = None
@@ -224,6 +241,7 @@ def _resolved_from_existing_adapter(
     seed: int,
     config: dict[str, Any],
 ) -> ResolvedCausalRelationPrior:
+    """通过 adapter 从源上下文正常行为中挖掘 prior。"""
     if not source_pkl.exists():
         raise FileNotFoundError(f"source_pkl not found: {source_pkl}")
     sequences = _load_behavior_sequences_from_pickle(source_pkl)
@@ -234,6 +252,9 @@ def _resolved_from_existing_adapter(
     if tensorized.tensor.shape[1] == 0:
         raise ValueError(f"source_pkl yielded no {level} channels: {source_pkl}")
 
+    # adapter 是本项目和 GCAD/causal-relation 挖掘器之间的边界。
+    # 本集成层只做事件张量准备、字段标准化和产物保存，不在这里再发明第二套
+    # 因果发现算法。
     adapter = CausalRelationAdapter()
     prior = adapter.mine_event_prior(
         tensorized.tensor,
@@ -272,6 +293,7 @@ def _resolved_from_existing_adapter(
 
 
 def _load_behavior_sequences_from_pickle(path: Path) -> list[BehaviorSequence]:
+    """加载形态不一的 Gen pickle 行，只保留可解析的扁平行为序列。"""
     with open(path, "rb") as f:
         raw = pickle.load(f)
     if isinstance(raw, np.ndarray):
@@ -303,6 +325,7 @@ def _extract_flat_sequence(item: Any) -> list[int] | None:
 
 
 def _matrix_to_list(matrix: Any) -> list[list[float]]:
+    """校验矩阵必须是方阵，并转换成 JSON 友好的 float 列表。"""
     arr = np.asarray(matrix, dtype=np.float32)
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
         raise ValueError(f"causal relation prior matrix must be square 2-D, got shape {arr.shape}")
@@ -325,6 +348,7 @@ def _default_channels(n: int, level: str) -> list[str]:
 
 
 def _top_edges_from_matrix(matrix: Sequence[Sequence[float]], channels: Sequence[str], lag: int, k: int = 50) -> list[dict[str, Any]]:
+    """从因果矩阵中抽取非自环有向边，并按权重降序排序。"""
     edges: list[tuple[float, int, int]] = []
     arr = np.asarray(matrix, dtype=np.float32)
     for i in range(arr.shape[0]):
@@ -342,6 +366,7 @@ def _top_edges_from_matrix(matrix: Sequence[Sequence[float]], channels: Sequence
 
 
 def _standardize_edges(edges: Iterable[Mapping[str, Any]], channels: Sequence[str], lag: int) -> list[dict[str, Any]]:
+    """统一不同 prior 产物中的边字段命名。"""
     out: list[dict[str, Any]] = []
     for edge in edges:
         source = str(edge.get("source") or edge.get("source_key") or "")

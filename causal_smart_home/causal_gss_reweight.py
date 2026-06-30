@@ -1,6 +1,14 @@
+"""把 GCAD 因果边融合进 Gen 的 GSS 转移图。
+
+Gen 的 GSS 从源上下文正常序列中统计 ``device A -> device B`` 这类经验转移；
+GCAD 提供设备间的有向 causal-relation 强度。本模块把两类边都规范化到同一
+套 device key 上，先使用 target guard 处理过的 causal strength，再计算供
+生成器遵循的最终结构提示分数。
+"""
+
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any, Mapping, Sequence
 
 from .schema import BehaviorSequence, load_numeric_sequences
@@ -10,13 +18,19 @@ def build_device_transition_graph(
     sequences,
     device_name_map: dict | None = None,
 ) -> dict:
-    """Build Gen-style device transition graph from flattened sequences."""
+    """从扁平 Gen 序列中构建 Gen 风格的设备转移图。
+
+    图中的边只统计相邻事件设备对，因此它更接近“局部转移规律”；后续的
+    causal augmented edge 可以补充 GCAD 发现但非相邻的长程结构关系。
+    """
 
     behavior_sequences = _coerce_sequences(sequences)
     counts: Counter[tuple[str, str]] = Counter()
     outgoing: Counter[str] = Counter()
     for seq in behavior_sequences:
         devices = [_canonical_device(ev.device) for ev in seq]
+        # Gen 风格 GSS 以相邻事件转移为基础：行为序列中相邻的两个设备贡献
+        # 一次有向计数。
         for source, target in zip(devices, devices[1:]):
             counts[(source, target)] += 1
             outgoing[source] += 1
@@ -54,13 +68,19 @@ def reweight_gss_edges(
     add_causal_edges: bool = False,
     top_k: int = 50,
 ) -> dict:
-    """Let guarded causal relation edges participate in Gen GSS edge scoring."""
+    """让经过 target guard 的 causal-relation 边参与 Gen GSS 评分。
+
+    ``transition_edges`` 提供 Gen 原有的经验转移概率，``causal_edges`` 提供
+    GCAD 的方向性强度；两者归一化后通过 additive 或 multiplicative 方式融合。
+    """
 
     if mode not in {"multiplicative", "additive"}:
         raise ValueError("mode must be multiplicative or additive")
 
     causal_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
     for edge in causal_edges:
+        # 不同 prior 格式在规范化后可能落到同一个设备对上；这里保留 guarded
+        # 强度最大的那一条，避免重复边让 prompt 过于噪声化。
         pair = (_edge_device_key(edge, "source"), _edge_device_key(edge, "target"))
         if pair[0] == "unknown" or pair[1] == "unknown":
             continue
@@ -99,6 +119,9 @@ def reweight_gss_edges(
         for pair, causal in causal_by_pair.items():
             if pair in seen_pairs:
                 continue
+            # 这些是 GCAD 支持、但没有出现在源序列相邻转移中的关系。
+            # 加入它们可以保留潜在长程结构，而不是因为 GSS 只统计相邻事件就
+            # 把这类关系完全丢掉。
             transition_stub = {
                 "source_device": _device_id_value(pair[0]),
                 "target_device": _device_id_value(pair[1]),
@@ -119,8 +142,9 @@ def reweight_gss_edges(
                 origin="causal_relation_augmented",
             )
             if mode == "multiplicative" and row["final_score"] == 0.0:
-                # A purely causal augmented edge should not vanish in
-                # multiplicative mode just because there was no transition edge.
+                # 纯 causal augmented edge 在 multiplicative 模式下没有原始
+                # transition_score；这里给它一个由因果强度决定的分数，避免它
+                # 因为“没有相邻转移计数”而直接归零。
                 row["final_score"] = lambda_causal * row["normalized_guarded_causal_strength"]
             out_edges.append(row)
 
@@ -161,14 +185,19 @@ def _score_edge_row(
     mode: str,
     origin: str,
 ) -> dict[str, Any]:
+    """计算一条融合边的最终分数和审计字段。"""
     transition_score = float(transition_edge.get("transition_score", 0.0))
     normalized_transition = transition_score / max_transition if max_transition > 0 else 0.0
     raw_causal = _raw_strength(causal_edge)
     guarded_causal = _guarded_strength(causal_edge)
     normalized_causal = guarded_causal / max_causal if max_causal > 0 else 0.0
     if mode == "additive":
+        # 加法模式：GSS 转移分数和 GCAD 因果强度相加，只有因果证据的边也可以
+        # 自然获得非零分。
         final_score = normalized_transition + lambda_causal * normalized_causal
     else:
+        # 乘法模式：GCAD 更像是对已有 GSS 转移边的放大器；既常见
+        # 又有因果支持的边会被优先推到前面。
         final_score = normalized_transition * (1.0 + lambda_causal * normalized_causal)
     source_id = _device_id_value(source_key)
     target_id = _device_id_value(target_key)

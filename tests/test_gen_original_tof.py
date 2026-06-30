@@ -1,3 +1,5 @@
+"""测试通过 mock Gen 脚本 staging 并调用 Gen original TOF。"""
+
 import json
 import pickle
 import textwrap
@@ -28,7 +30,7 @@ def test_gen_original_tof_wrapper_calls_mock_security_check(tmp_path):
                 base = f"{dataset}_{new_env}_generation_{method}_th={thres}_{model}_seq"
                 root = Path("filter_data") / dataset / new_env
                 data = pickle.load(open(root / f"{base}.pkl", "rb"))
-                # Mimic original two-pass TOF final output: retain all but last.
+                # 模拟原始两阶段 TOF 的最终输出：保留除最后一条以外的样本。
                 with open(root / f"{base}_filter_true.pkl", "wb") as f:
                     pickle.dump(data[:-1], f)
             """

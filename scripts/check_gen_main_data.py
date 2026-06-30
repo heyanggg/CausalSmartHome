@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+"""检查主实验所需的 vendored Gen 数据和 checkpoint 是否齐全。"""
+
 from __future__ import annotations
 
 import argparse
@@ -47,6 +49,7 @@ def main() -> None:
 
 
 def build_report() -> dict[str, Any]:
+    """构建完整 FR/SP/US x spring/night/multiple 数据可用性报告。"""
     required_global = {
         "smartgen_paper_pdf": PAPER_PATH,
         "gen_original_tof_security_check": GEN_ROOT / "gen_original_tof" / "security_check.py",
@@ -80,6 +83,7 @@ def build_report() -> dict[str, Any]:
 
 
 def check_cell(dataset: str, env: str) -> dict[str, Any]:
+    """检查一个 dataset/environment 实验单元所需的全部文件。"""
     threshold = DEFAULT_THRESHOLDS[(dataset, env)]
     percentage = DEFAULT_THRESHOLD_PERCENTAGES[(dataset, env)]
     source_env = SOURCE_ENV_BY_TARGET_ENV[env]
@@ -129,6 +133,7 @@ def check_cell(dataset: str, env: str) -> dict[str, Any]:
 
 
 def pickle_len(path: Path) -> int | None:
+    """尽量返回 pickle 长度；失败时不让整个报告构建中断。"""
     try:
         with open(path, "rb") as f:
             return len(pickle.load(f))
@@ -137,6 +142,7 @@ def pickle_len(path: Path) -> int | None:
 
 
 def print_text_report(report: dict[str, Any]) -> None:
+    """打印紧凑的人类可读数据可用性报告。"""
     print(f"GEN_MAIN_DATA_STATUS: {report['status']}")
     print(f"cells: {report['num_cells']} ({', '.join(report['datasets'])} x {', '.join(report['environments'])})")
     for row in report["rows"]:

@@ -1,3 +1,11 @@
+"""Gen 原始 TOF 之后的 Causal-TOF 序列评分。
+
+Gen original TOF 先完成重构损失异常过滤和 utility/value selection。Causal-TOF
+不会替代这一步，而是在其输出之上，结合 guarded causal-reweighted GSS hints
+和目标设备分布继续给每条生成序列打分。根据实验配置，它可以只排序、按权重
+重采样，或直接过滤低权重序列。
+"""
+
 from __future__ import annotations
 
 import math
@@ -6,7 +14,7 @@ import random
 import importlib
 import sys
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from .schema import BehaviorSequence, dump_numeric_sequences, load_numeric_sequences
 from .target_distribution_guard import compute_device_distribution
@@ -23,10 +31,11 @@ def score_sequence_causal_tof(
     temperature: float = 2.0,
     penalize_downweighted_edges: bool = False,
 ) -> dict:
-    """Score one generated sequence for Causal-TOF soft weighting.
+    """为一条生成序列计算 Causal-TOF 软权重。
 
-    Lower final_score is better.  The default decision is ``weight``; scripts can
-    convert it to rank/filter behavior without making hard deletion the default.
+    ``final_score`` 越低表示序列越好。默认输出 ``decision="weight"``，也就是
+    不直接删样本，而是让 CLI 根据模式转换成 rank/filter/weighted-resample。
+    这样 Causal-TOF 可以作为软后处理步骤，而不是默认硬删除。
     """
 
     seq = _coerce_one_sequence(sequence)
@@ -46,6 +55,10 @@ def score_sequence_causal_tof(
         if weight <= 0:
             continue
         guard_action = str(edge.get("guard_action", "keep"))
+        # 降权边仍然会进入审计字段，便于观察模型是否违背了这些弱边。
+        # 但默认不把它们计入 violation penalty，因为 target guard 已经标记了
+        # 这些边对目标上下文存在分布风险；若要诊断可开启
+        # --penalize-downweighted-edges。
         penalize_edge = penalize_downweighted_edges or guard_action != "downweight"
         source_key = _edge_device_key(edge, "source")
         target_key = _edge_device_key(edge, "target")
@@ -69,6 +82,8 @@ def score_sequence_causal_tof(
                 missing_weight += weight
             continue
         if any(i < j for i in src_pos for j in tgt_pos):
+            # 只要序列中存在一次 source 出现在 target 之前，就认为这条因果
+            # 顺序提示被满足；这允许一条序列中同一设备多次出现。
             satisfied.append(row)
             observed_satisfied_weight += weight
             if penalize_edge:
@@ -88,6 +103,9 @@ def score_sequence_causal_tof(
     observed_causal_violation = observed_violated_weight / observed_checked_weight if observed_checked_weight > 0 else 0.0
     dist_penalty = _distribution_penalty(seq, target_distribution)
     rec = 0.0 if reconstruction_loss is None else float(reconstruction_loss)
+    # 分数越低越好：重构异常、因果顺序违背、目标分布过度使用都作为惩罚项。
+    # 重构损失在当前主流程中通常为空，但保留接口方便以后接入 Gen TOF 的逐样本
+    # 重构损失。
     final_score = alpha_rec * rec + beta_violation * causal_violation + gamma_dist * dist_penalty
     sample_weight = math.exp(-float(temperature) * final_score)
 
@@ -122,6 +140,7 @@ def score_sequences_causal_tof(
     min_weight: float = 0.05,
     **kwargs,
 ) -> list[dict[str, Any]]:
+    """批量给序列打分，并根据模式附加 rank/weight/filter 决策。"""
     if mode not in {"rank", "weight", "filter"}:
         raise ValueError("mode must be rank, weight, or filter")
     losses = list(reconstruction_losses) if reconstruction_losses is not None else [None] * len(sequences)
@@ -156,7 +175,12 @@ def weighted_resample_sequences(
     max_copies: int = 3,
     target_size: int | None = None,
 ) -> tuple[list[BehaviorSequence], dict[str, Any]]:
-    """Weighted-resampling fallback for downstream AD code without sample weights."""
+    """对不支持 sample weights 的下游 AD 代码提供加权重采样 fallback。
+
+    Gen 的 downstream AD 读取的是普通 pkl，而不是带样本权重的数据结构。因此
+    weight 模式会根据 ``sample_weight`` 重采样，近似表达“好序列权重大、差序列
+    权重小”的效果。
+    """
 
     seqs = [_coerce_one_sequence(seq) for seq in sequences]
     if len(seqs) != len(scores):
@@ -184,7 +208,8 @@ def weighted_resample_sequences(
         out.append(seqs[idx])
         copies[idx] += 1
     if len(out) < target_size:
-        # Fill deterministically with best still-under-cap samples.
+        # 如果随机采样因为 max_copies 限制没有填满，就按权重从高到低确定性补齐，
+        # 保证同一 seed 下输出稳定。
         ordered = sorted(range(len(seqs)), key=lambda i: float(scores[i].get("sample_weight", 0.0)), reverse=True)
         cursor = 0
         while len(out) < target_size and ordered:
@@ -222,6 +247,7 @@ def save_pickle_sequences(path: str | Path, sequences: Sequence[BehaviorSequence
 
 
 def extract_guarded_edges(payload: Mapping[str, Any] | list[dict]) -> list[dict]:
+    """兼容 prompt/hint 构建脚本可能输出的几种 guarded edge JSON 形态。"""
     if isinstance(payload, list):
         return list(payload)
     for key in ("edges", "guarded_edges", "top_causal_edges"):
@@ -235,6 +261,7 @@ def extract_guarded_edges(payload: Mapping[str, Any] | list[dict]) -> list[dict]
 
 
 def _distribution_penalty(seq: BehaviorSequence, target_distribution: Mapping[str, float] | None) -> float:
+    """惩罚序列中超过目标正常设备频率的设备。"""
     if not target_distribution:
         return 0.0
     obs = compute_device_distribution([seq])
@@ -284,8 +311,8 @@ def _canonical_device(value: Any) -> str:
 
 
 def _install_numpy_pickle_compat() -> None:
-    # Some Gen pickles were produced with newer NumPy module paths
-    # (numpy._core.*). Older experiment envs still expose numpy.core.*.
+    # 有些 Gen pkl 是用较新的 NumPy 保存的，内部模块路径是 numpy._core.*；
+    # 旧实验环境只暴露 numpy.core.*，这里注册别名以兼容加载。
     if "numpy._core" not in sys.modules:
         try:
             sys.modules["numpy._core"] = importlib.import_module("numpy.core")

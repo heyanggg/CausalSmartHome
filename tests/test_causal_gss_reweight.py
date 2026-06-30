@@ -1,3 +1,5 @@
+"""测试 Gen 转移计数与 guarded GCAD 因果边的融合逻辑。"""
+
 import json
 
 from causal_smart_home.causal_gss_reweight import build_device_transition_graph, reweight_gss_edges

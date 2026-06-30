@@ -1,21 +1,35 @@
+"""在把源上下文因果边用于目标上下文 Gen 生成前做分布保护。
+
+GCAD prior 来自源上下文，但最终要生成目标上下文正常行为。某条源上下文里很强
+的因果边，可能会把生成器推向目标正常数据中很少出现的设备。target guard
+就是在 GSS 重加权之前，根据目标分布对这类边进行 suppress 或 downweight。
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from .schema import BehaviorSequence, load_numeric_sequences
 
 
 @dataclass
 class TargetDistributionGuardConfig:
+    """控制分布保护强度的配置。
+
+    ``max_overuse_ratio`` 越小越严格；``mode`` 决定超限边是直接置零还是降权；
+    ``endpoint_policy`` 决定检查 source、target 还是二者组合。
+    """
+
     max_overuse_ratio: float = 1.25
     min_target_freq: float = 0.001
     eps: float = 1e-8
-    mode: str = "suppress"  # suppress / downweight
+    mode: str = "suppress"  # 模式取值：置零或按比例降权
     downweight_factor: float = 0.25
-    endpoint_policy: str = "target"  # target / source_or_target / both
+    endpoint_policy: str = "target"  # 检查目标端点、任一端点或两个端点同时超限
 
     def __post_init__(self) -> None:
+        """尽早校验配置，避免写出含义不清或非法的实验产物。"""
         if self.mode not in {"suppress", "downweight"}:
             raise ValueError("mode must be suppress or downweight")
         if self.endpoint_policy not in {"target", "source_or_target", "both"}:
@@ -27,11 +41,11 @@ class TargetDistributionGuardConfig:
 
 
 def compute_device_distribution(sequences) -> dict[str, float]:
-    """Compute device-frequency distribution from Gen sequences.
+    """从 Gen 序列计算设备频率分布。
 
-    Input may be BehaviorSequence objects, flattened numeric lists, numpy rows, or
-    tuple-wrapped rows from labeled datasets.  Output keys are canonical ``d:<id>``
-    strings so they align with device-level causal relation channels.
+    输入可以是 ``BehaviorSequence``、扁平数字列表、NumPy 行，或者带标签数据集
+    中的 tuple 包装行。输出 key 统一为 ``d:<id>``，这样能和 device-level
+    causal relation channels 对齐。
     """
 
     behavior_sequences = _coerce_sequences(sequences)
@@ -52,10 +66,10 @@ def apply_target_distribution_guard(
     target_distribution: dict,
     config: TargetDistributionGuardConfig,
 ) -> tuple[list[dict], dict]:
-    """Suppress or downweight causal edges whose endpoints are overused.
+    """对端点设备在目标分布中被过度使用的因果边进行抑制或降权。
 
-    The guard is not a new causal discovery method.  It protects a source-context
-    causal relation prior before moving it into target-context Gen guidance.
+    注意：guard 不是新的因果发现方法。它只是把源上下文 causal relation prior
+    迁移到目标上下文 Gen guidance 之前的一层分布保护。
     """
 
     observed = _normalize_distribution(generated_or_prompt_distribution)
@@ -65,6 +79,9 @@ def apply_target_distribution_guard(
     overused_devices: dict[str, dict[str, Any]] = {}
 
     for edge in causal_edges:
+        # guard 决策基于边的端点设备。默认只检查目标端点，因为目标端
+        # 过度使用通常最容易把生成数据推偏；source_or_target 和 both 主要用于
+        # 更严格实验或诊断。
         source_key = _edge_endpoint_key(edge, "source")
         target_key = _edge_endpoint_key(edge, "target")
         raw_weight = float(edge.get("raw_weight", edge.get("weight", edge.get("guarded_weight", 0.0))))
@@ -173,8 +190,9 @@ def _normalize_distribution(distribution: Mapping[Any, Any] | None) -> dict[str,
 
 
 def _edge_endpoint_key(edge: Mapping[str, Any], role: str) -> str:
-    # Prefer explicit device fields, then d:<id> channel strings.  If a row only
-    # has matrix indices, the caller should provide d:<device> in source/target.
+    # 优先使用显式 device 字段，其次使用 d:<id> 通道字符串。如果一行只有矩阵
+    # 下标，调用方应该提前把 source/target 填成 d:<device>，否则 guard 无法
+    # 知道真实设备含义。
     for field in (f"{role}_device", f"{role}_device_id", f"{role}_device_key"):
         if field in edge and edge[field] is not None:
             return _canonical_device_key(edge[field])
@@ -196,8 +214,8 @@ def _canonical_device_key(value: Any) -> str:
     if text.isdigit():
         return f"d:{int(text)}"
     if text.startswith("a:"):
-        # Action-level edges are not valid for a device guard; keep as-is so the
-        # report exposes the mismatch rather than silently converting it.
+        # 动作级边并不适合设备级 guard。这里保留原样，让报告暴露层级
+        # 不匹配问题，而不是静默地把动作 key 转成错误的设备 key。
         return text
     return text
 

@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""校验 Codex 编写的 JSONL 序列，并打包成 Gen 可读取的 pkl。
+
+验证器刻意严格检查扁平四元组格式和设备/动作字典合法性，因为后续 Gen TOF/AD
+代码默认 numeric device/action ID 已经与原始数据集完全一致。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -16,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from causal_smart_home.schema import load_numeric_sequences
+from causal_smart_home.json_utils import write_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,6 +58,8 @@ def main() -> None:
     lengths: Counter[int] = Counter()
 
     for index, row in enumerate(rows):
+        # 每一行都应该是包含 sequence list 的对象。非法行会被收集到报告中并写明
+        # 原因，避免问题在 Gen 执行阶段静默传播或变成难定位的运行错误。
         sequence = row.get("sequence") if isinstance(row, Mapping) else None
         sequence_id = row.get("sequence_id", str(index)) if isinstance(row, Mapping) else str(index)
         flat, extraction_error = extract_flat(sequence)
@@ -129,6 +138,7 @@ def main() -> None:
 
 
 def validate_flat(flat: Sequence[int], vocab: Mapping[str, Any], expected_length: int | None = None) -> list[str]:
+    """检查一条生成的扁平序列是否满足 Gen 格式和字典约束。"""
     reasons: list[str] = []
     if not flat:
         return ["empty_sequence"]
@@ -158,6 +168,7 @@ def validate_flat(flat: Sequence[int], vocab: Mapping[str, Any], expected_length
 
 
 def load_vocab(path: Path, dataset: str) -> dict[str, Any]:
+    """把 Gen 字典解析成便于快速合法性检查的 lookup 集合。"""
     payload = load_dictionaries(path)
     prefix = dataset
     device_name_to_id = {str(k): int(v) for k, v in payload[f"{prefix}_devices_dict"].items()}
@@ -173,8 +184,8 @@ def load_vocab(path: Path, dataset: str) -> dict[str, Any]:
         action_to_device[int(action_id)] = device_id
         allowed_devices = {device_id}
         if device_name == "None" and "Other" in device_name_to_id:
-            # Gen's legacy FR/SP/US flattened data uses Other + None:location
-            # for location rows. Treat that original-format pair as legal.
+            # Gen 旧版 FR/SP/US 扁平数据会用 Other + None:location 表示 location
+            # 行。这里把这组原始格式搭配视为合法，避免把 Gen 自带格式误判为错。
             allowed_devices.add(int(device_name_to_id["Other"]))
         action_to_allowed_devices[int(action_id)] = allowed_devices
         action_by_device.setdefault(device_id, set()).add(int(action_id))
@@ -188,6 +199,7 @@ def load_vocab(path: Path, dataset: str) -> dict[str, Any]:
 
 
 def load_dictionaries(path: Path) -> dict[str, Any]:
+    """安全解析 ``dictionary.py`` 中的字面量字典赋值。"""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     out: dict[str, Any] = {}
     for node in tree.body:
@@ -204,6 +216,7 @@ def load_dictionaries(path: Path) -> dict[str, Any]:
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """从生成输出文件中读取 newline-delimited JSON 行。"""
     rows = []
     with open(path, "r", encoding="utf-8") as f:
         for line_number, line in enumerate(f, start=1):
@@ -218,6 +231,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def extract_flat(value: Any) -> tuple[list[int] | None, str | None]:
+    """把候选 sequence 字段转换成整数列表，并返回可能的错误原因。"""
     if value is None:
         return None, "missing_sequence"
     if hasattr(value, "tolist"):
@@ -234,12 +248,8 @@ def resolved_or_none(path: Path | None) -> str | None:
     return str(path.resolve()) if path is not None else None
 
 
-def write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 def install_numpy_pickle_compat() -> None:
+    """注册 NumPy 模块别名，兼容跨版本 pickle 加载。"""
     if "numpy._core" not in sys.modules:
         try:
             sys.modules["numpy._core"] = importlib.import_module("numpy.core")

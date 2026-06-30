@@ -1,9 +1,18 @@
 #!/usr/bin/env python
+"""构建生成阶段使用的 GCAD + Gen GSS prompt 产物。
+
+输入：
+    源上下文 normal Gen pkl、目标上下文 normal Gen pkl，以及可选的 causal prior。
+
+输出：
+    resolved prior JSON、target distribution guard report、guarded reweighted
+    GSS hints，以及供 Codex/人工生成使用的 prompt 文本。
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
-import pickle
 import sys
 from pathlib import Path
 from typing import Any
@@ -21,6 +30,7 @@ from causal_smart_home.target_distribution_guard import (
 )
 from causal_smart_home.causal_tof import load_pickle_sequences
 from causal_smart_home.causal_gss import load_id_name_mapping, device_key_to_name
+from causal_smart_home.json_utils import jsonable
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,18 +63,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def jsonable(obj: Any) -> Any:
-    if isinstance(obj, Path):
-        return str(obj)
-    if isinstance(obj, dict):
-        return {str(k): jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [jsonable(v) for v in obj]
-    if hasattr(obj, "item"):
-        return obj.item()
-    return obj
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parse_args() if argv is None else parse_args_from(argv)
     source_pkl = Path(args.source_pkl).resolve()
@@ -95,6 +93,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     prior.save(out_prior)
 
+    # 源序列有两重用途：一是统计 Gen 原始 GSS 转移，二是在没有外部 prior
+    # 时作为 GCAD prior 的挖掘来源。目标序列用于计算目标设备分布，在源
+    # 上下文因果边真正影响目标生成之前先做分布保护。
     device_mapping = load_id_name_mapping(args.device_dict, preferred_names=("sp_devices_dict", "fr_devices_dict", "us_devices_dict", "device_dict")) if args.device_dict else {}
     source_sequences = load_pickle_sequences(source_pkl)
     target_sequences = load_pickle_sequences(target_pkl)
@@ -173,6 +174,7 @@ def parse_args_from(argv: list[str]) -> argparse.Namespace:
 
 
 def annotate_edge_names(edges: list[dict[str, Any]], device_mapping: dict[int, str]) -> list[dict[str, Any]]:
+    """给因果边字典补充人类可读的设备名。"""
     out = []
     for edge in edges:
         row = dict(edge)
@@ -183,6 +185,7 @@ def annotate_edge_names(edges: list[dict[str, Any]], device_mapping: dict[int, s
 
 
 def annotate_guard_report_device_names(report: dict[str, Any], device_mapping: dict[int, str]) -> dict[str, Any]:
+    """在存在设备字典时，让 overuse report 更容易人工检查。"""
     if not device_mapping:
         return report
     out = dict(report)
@@ -196,6 +199,7 @@ def annotate_guard_report_device_names(report: dict[str, Any], device_mapping: d
 
 
 def build_prompt_text(prior: ResolvedCausalRelationPrior, transition_graph: dict, guard_report: dict, reweighted: dict, args: argparse.Namespace) -> str:
+    """渲染包含原始 GSS、raw GCAD 和 guarded hints 的最终 prompt。"""
     transition_edges = transition_graph.get("edges", [])[: args.top_k]
     raw_edges = prior.top_causal_edges[: args.top_k]
     guarded_edges = reweighted.get("edges", [])[: args.top_k]

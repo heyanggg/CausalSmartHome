@@ -1,3 +1,5 @@
+"""CausalSmartHome 常用维护任务的命令行入口。"""
+
 from __future__ import annotations
 
 import argparse
@@ -10,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """分发 ``csh`` console script 的子命令。"""
     parser = argparse.ArgumentParser(
         prog="csh",
         description="Utilities for CausalSmartHome main experiments.",
@@ -31,6 +34,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def _summarize_command(args: argparse.Namespace) -> None:
+    """写出主实验 per-seed 汇总产物。"""
     from scripts.summarize_main_experiment import (
         collect_per_seed_rows,
         write_outputs,
@@ -42,6 +46,7 @@ def _summarize_command(args: argparse.Namespace) -> None:
 
 
 def _check_gen_data_command(args: argparse.Namespace) -> None:
+    """检查实验所需的 vendored Gen 数据、checkpoint 和参考结果是否齐全。"""
     from scripts.check_gen_main_data import build_report, print_text_report
 
     report = build_report()

@@ -1,3 +1,10 @@
+"""运行 Gen 内置的下游异常检测协议。
+
+本模块保持最终评估与 Gen 一致：导入 vendored Transformer autoencoder 和数据集
+类，在生成的 normal 数据上训练，用 validation reconstruction loss 的分位数
+确定异常阈值，再在 Gen 的 target-normal + attack test set 上评估。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +18,8 @@ import os
 import pickle
 import random
 import sys
+
+from .json_utils import jsonable
 
 
 VOCAB_DIC = {"fr": 223, "sp": 235, "us": 269}
@@ -59,6 +68,7 @@ DEFAULT_THRESHOLD_PERCENTAGES = {
 
 
 def env_for_scenario(scenario: str) -> str:
+    """把 ``st`` 等短别名规范化为 Gen 使用的环境名。"""
     try:
         return ENV_BY_SCENARIO[scenario]
     except KeyError as exc:
@@ -68,6 +78,8 @@ def env_for_scenario(scenario: str) -> str:
 
 @dataclass(frozen=True)
 class GenDownstreamADRunConfig:
+    """一次 Gen downstream AD 运行所需的全部输入和超参数。"""
+
     gen_root: Path
     dataset: str
     env: str
@@ -90,6 +102,7 @@ class GenDownstreamADRunConfig:
 
 
 def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
+    """返回某个 dataset/env 单元格对应的 vendored Gen attack/test 路径。"""
     if dataset not in DATASETS:
         raise ValueError(f"dataset must be one of: {', '.join(DATASETS)}")
     if env not in ENVIRONMENTS:
@@ -122,6 +135,7 @@ def split_generated_to_train_validation(
     split_ratio: float = 0.8,
     seed: int = 2024,
 ) -> tuple[list[Any], list[Any]]:
+    """按固定 seed 把生成 normal 数据切分为 train/validation。"""
     data = list(load_pickle(data_file))
     rng = random.Random(seed)
     rng.shuffle(data)
@@ -134,6 +148,7 @@ def split_generated_to_train_validation(
 
 
 def _import_gen_models(gen_root: Path):
+    """在不安装 Gen 包的情况下导入 Gen 的 ``models1.py``。"""
     pipeline_root = gen_root / "anomaly_detection_pipeline"
     module_path = pipeline_root / "models1.py"
     if not module_path.exists():
@@ -150,6 +165,7 @@ def _import_gen_models(gen_root: Path):
 
 
 def _resolve_torch_device(requested: str):
+    """解析并校验训练设备，尤其防止请求 CUDA 但实际不可用。"""
     try:
         import torch
     except ImportError as exc:
@@ -181,6 +197,7 @@ def _setup_torch_seed(seed: int) -> None:
 
 
 def _pad_sequences(vocab_size: int, sequences: Sequence[Sequence[int]], length: int = 40) -> list[list[int]]:
+    """把扁平序列 pad/truncate 到 Gen 数据集类期望的固定长度。"""
     padded: list[list[int]] = []
     for seq in sequences:
         row = list(seq)
@@ -193,6 +210,7 @@ def _pad_sequences(vocab_size: int, sequences: Sequence[Sequence[int]], length: 
 
 
 def _dataset_for_env(models_module, env: str):
+    """根据环境选择 Gen 原始代码中的环境专用 Dataset 类。"""
     if env == "spring":
         return models_module.TimeSeriesDataset2
     if env == "night":
@@ -211,6 +229,7 @@ def _make_loader(models_module, env: str, vocab_size: int, data_file: str | Path
 
 
 def _sequence_loss(output, src, mask_v, vocab_size: int, seq_len: int, criterion):
+    """计算一个 batch 的 masked token reconstruction loss。"""
     import torch
 
     loss = criterion(output.view(-1, vocab_size), src.view(-1))
@@ -231,6 +250,7 @@ def _train_adaptive(
     seq_len: int,
     device,
 ) -> list[dict[str, float]]:
+    """在生成 normal 序列上训练 Gen Transformer autoencoder。"""
     import torch
     import torch.nn as nn
     from torch import optim
@@ -321,6 +341,7 @@ def _find_threshold_adaptive(
     percentage: float,
     device,
 ):
+    """根据 validation reconstruction losses 的分位数设置异常阈值。"""
     losses = _losses_for_file(models_module, env, vocab_size, vld_file, model_path, seq_len, device)
     avg_loss = float(np.mean(losses)) if losses else math.nan
     print(f"Avg Loss (Validation Dataset): {avg_loss:.4f}")
@@ -340,6 +361,7 @@ def _evaluate_adaptive(
     threshold: float,
     device,
 ) -> dict[str, Any]:
+    """在 target normal 行和 Gen attack 行上用学习到的阈值评估异常检测。"""
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader
@@ -402,16 +424,6 @@ def _evaluate_adaptive(
     }
 
 
-def _jsonable(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {str(k): _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_jsonable(v) for v in obj]
-    if hasattr(obj, "item"):
-        return obj.item()
-    return obj
-
-
 def _prepare_split(config: GenDownstreamADRunConfig, train_pkl: Path, vld_pkl: Path) -> tuple[int, int]:
     train, vld = split_generated_to_train_validation(
         config.synthetic_pkl,
@@ -429,9 +441,9 @@ def _prepare_train_validation_files(
     vld_pkl: Path,
 ) -> tuple[Path, Path, Path, int, int, int, str]:
     if config.env == "multiple":
-        # SmartGen's original downstream AD uses the full filtered synthetic
-        # multiple-context set for both training and threshold calibration.
-        # Spring/night keep the generated 80/20 split path below.
+        # SmartGen 原始下游异常检测对 multiple 场景使用完整的过滤后合成数据集
+        # 同时进行训练和阈值校准；spring/night 则沿用下面的 80/20 生成数据
+        # 切分路径。这里保留原协议，避免评估口径漂移。
         train_path = config.synthetic_pkl.resolve()
         threshold_vld = (config.validation_pkl or config.synthetic_pkl).resolve()
         size = len(load_pickle(train_path))
@@ -453,6 +465,7 @@ def _prepare_train_validation_files(
 
 
 def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[str, Any]:
+    """运行完整 Gen downstream AD 协议，并写出 raw metrics payload。"""
     if config.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = config.cuda_visible_devices
 
@@ -565,5 +578,5 @@ def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[s
         }
     )
     payload.update(metrics)
-    result_path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+    result_path.write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
     return payload

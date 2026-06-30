@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""打包供 Codex 生成 target-normal 行为序列使用的 prompt 产物。
+
+本脚本本身不生成序列，只把固定的 causal-GSS 产物复制成一个自包含 package，
+并写入 schema/instruction 文件，保证人工或 Codex 生成步骤可以复现。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -31,6 +37,8 @@ def main() -> None:
         "resolved_causal_relation_prior.json",
     ]
     for name in required:
+        # 保持 generation package 自包含：后续验证脚本只需要指向这个目录，不必
+        # 再依赖原始 causal-GSS 运行目录是否还存在。
         src = causal_gss_dir / name
         if not src.exists():
             raise FileNotFoundError(f"required causal GSS artifact missing: {src}")
@@ -56,6 +64,7 @@ def main() -> None:
 
 
 def build_instruction(scenario: str) -> str:
+    """为单个场景 package 写出面向人工/Codex 的生成协议说明。"""
     scenario_note = "In SP-ST, pay special attention to Television overuse." if scenario == "sp_st" else f"Use {scenario} target-context normal behavior."
     return "\n".join(
         [

@@ -1,10 +1,15 @@
 #!/usr/bin/env python
+"""Gen 内置下游异常检测器的命令行包装器。
+
+真正的 Gen AD 协议实现在 ``gen_downstream_ad.py``。本脚本在其外层补充实验
+溯源、标准化 metrics、输入 manifest 和失败报告。
+"""
+
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import math
 import shlex
 import sys
 import traceback
@@ -25,6 +30,7 @@ from causal_smart_home.gen_downstream_ad import (
     load_pickle,
     run_gen_downstream_ad_experiment,
 )
+from causal_smart_home.json_utils import jsonable
 
 
 GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
@@ -59,20 +65,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-test-pkl", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
-
-
-def jsonable(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {str(k): jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [jsonable(v) for v in obj]
-    if isinstance(obj, Path):
-        return str(obj)
-    if isinstance(obj, float) and math.isnan(obj):
-        return None
-    if hasattr(obj, "item"):
-        return obj.item()
-    return obj
 
 
 def fpr(payload: dict[str, Any]) -> float | None:
@@ -119,6 +111,7 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 
 
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
+    """推断 pre-TOF、post-Gen-TOF、post-Causal-TOF 的样本数量用于报告。"""
     variant = args.variant
     current_len = _pickle_len(args.generated_pkl)
     pre_tof_len = _pickle_len(args.pre_tof_pkl)
@@ -157,6 +150,7 @@ def generator_for_variant(variant: str) -> str:
 
 
 def read_generation_provenance(path: Path | None) -> dict[str, Any]:
+    """读取 generated pkl 旁边的 generator/model 溯源信息。"""
     if path is None:
         return {}
     candidates = [
@@ -198,6 +192,7 @@ def used_causal_tof_for_variant(variant: str) -> bool:
 
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    """把 raw Gen AD payload 展平为汇总脚本使用的 per-seed schema。"""
     variant = args.variant
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
     threshold_percentage = (
@@ -205,7 +200,6 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         if args.threshold_percentage is not None
         else DEFAULT_THRESHOLD_PERCENTAGES[(args.dataset, gen_env(args.scenario))]
     )
-    metrics_path = payload.get("result_path")
     normalized = {
         "status": "dry_run" if payload.get("dry_run") else "success",
         "dataset": args.dataset,
@@ -318,6 +312,7 @@ def write_markdown(path: Path, metrics: dict[str, Any]) -> None:
 
 
 def required_paths(args: argparse.Namespace) -> dict[str, Path]:
+    """在昂贵训练开始前列出并检查必须存在的输入文件。"""
     env = gen_env(args.scenario)
     defaults = default_gen_paths(args.gen_root, args.dataset, env)
     paths = {
@@ -332,6 +327,7 @@ def required_paths(args: argparse.Namespace) -> dict[str, Path]:
 
 
 def write_failure(out_dir: Path, args: argparse.Namespace, reason: str, missing: list[str] | None = None) -> None:
+    """保存足够上下文，方便排查失败的 AD 运行。"""
     report = {
         "status": "failed",
         "command_attempted": command_text(),

@@ -1,8 +1,10 @@
-"""Compatibility shim for loading NumPy-2.x pickles in NumPy-1.x envs.
+"""兼容不同 NumPy 版本生成的 pickle。
 
-Some Gen pkl files were saved with module paths like
-numpy._core.*, while older NumPy exposes them as numpy.core.*.
-Python imports sitecustomize automatically when PYTHONPATH=. is used.
+部分 Gen 的 pkl 文件是在 NumPy 2.x 环境下保存的，pickle 内部会记录
+``numpy._core.*`` 这类模块路径；而较老的 NumPy 环境只暴露
+``numpy.core.*``。当运行时设置了 ``PYTHONPATH=.``，Python 会自动导入
+``sitecustomize``，这里就提前注册别名，避免加载旧实验产物时因为模块路径
+不同而失败。
 """
 from __future__ import annotations
 

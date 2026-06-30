@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+"""把 per-seed normalized metrics 收集成正式主实验汇总表。"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +14,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from causal_smart_home.json_utils import jsonable
 
 PER_SEED_FIELDS = [
     "dataset",
@@ -65,11 +69,12 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def collect_metric_files(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[Path]:
-    """Collect normalized per-run metrics."""
+    """收集每次运行写出的 normalized metrics 文件。"""
     return sorted(path for path in runs_root.glob(metrics_glob) if path.is_file() and not is_diagnostic_metric_path(path))
 
 
 def is_diagnostic_metric_path(path: Path) -> bool:
+    """把探索性/诊断性运行排除在主结果表之外。"""
     parts = {part.lower() for part in path.parts}
     name = path.parent.name.lower()
     return (
@@ -103,6 +108,7 @@ def _as_int(value: Any) -> int | None:
 
 
 def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[str, Any]:
+    """把一份 normalized metrics JSON 转成类型稳定的表格行。"""
     row = {field: payload.get(field, "") for field in PER_SEED_FIELDS}
     row["seed"] = _as_int(row.get("seed"))
     row["metrics_path"] = row.get("metrics_path") or str(metrics_path.resolve())
@@ -131,6 +137,7 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
 
 
 def collect_per_seed_rows(runs_root: Path, metrics_glob: str = "**/normalized_metrics.json") -> list[dict[str, Any]]:
+    """读取保留的 ablation/proposed 行，并稳定排序。"""
     rows = []
     for path in collect_metric_files(runs_root, metrics_glob):
         payload = load_json(path)
@@ -139,18 +146,6 @@ def collect_per_seed_rows(runs_root: Path, metrics_glob: str = "**/normalized_me
             rows.append(row)
     rows.sort(key=lambda r: (str(r.get("dataset")), str(r.get("scenario")), int(r.get("seed") or -1), str(r.get("variant"))))
     return rows
-
-
-def jsonable(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {str(k): jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [jsonable(v) for v in obj]
-    if isinstance(obj, Path):
-        return str(obj)
-    if isinstance(obj, float) and math.isnan(obj):
-        return None
-    return obj
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
@@ -186,6 +181,7 @@ def write_markdown_table(path: Path, title: str, rows: list[dict[str, Any]], fie
 
 
 def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]]) -> None:
+    """写出 per-seed 表格的 CSV、JSON 和 Markdown 版本。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "main_experiment"
 

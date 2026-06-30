@@ -1,3 +1,11 @@
+"""轻量版 causal-relation 风格先验挖掘。
+
+当外部 causal-relation/GCAD 产物没有直接提供时，本模块作为本地 fallback。
+它先在事件张量上训练一个小预测器，再分别对每个输出通道的预测损失做反向
+传播，用“输出损失对输入通道窗口的梯度大小”估计方向性影响强度。最终得到
+的矩阵会被稀疏化、归一化，并保存成可审计的因果先验 JSON。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -17,7 +25,7 @@ except Exception:  # pragma: no cover
 
 @dataclass
 class CausalPrior:
-    """Serializable causal prior mined from normal behavior data."""
+    """从正常行为数据中挖掘出的、可序列化保存的因果先验。"""
 
     matrix: list[list[float]]
     channel_to_key: list[str]
@@ -28,9 +36,15 @@ class CausalPrior:
 
     @property
     def np_matrix(self) -> np.ndarray:
+        """把 JSON/list 形式保存的因果矩阵转成 NumPy 数组，方便排序和计算。"""
         return np.asarray(self.matrix, dtype=np.float32)
 
     def top_edges(self, k: int = 20, min_weight: float | None = None, include_self: bool = False) -> list[dict[str, Any]]:
+        """按权重从高到低列出非零有向边。
+
+        每条边都保留 source/target 的通道键、矩阵下标、权重和 lag，后续
+        target guard、GSS 重加权和 prompt 构建都依赖这些字段。
+        """
         mat = self.np_matrix
         edges: list[tuple[float, int, int]] = []
         for i in range(mat.shape[0]):
@@ -72,6 +86,8 @@ class CausalPrior:
 if nn is not None:
 
     class _TinyMixer(nn.Module):
+        """用于从事件张量挖掘先验的小型 MLP 预测器。"""
+
         def __init__(self, in_channels: int, lag: int, hidden: int = 64):
             super().__init__()
             self.net = nn.Sequential(
@@ -91,16 +107,18 @@ else:  # pragma: no cover
 
 
 class GradientCausalMiner:
-    """A compact causal-relation-style gradient causal miner.
+    """基于梯度的轻量 GCAD/causal-relation 风格因果挖掘器。
 
-    It follows the causal-relation principle: train a predictor on normal multivariate
-    behavior tensors, compute channel-separated prediction losses, backpropagate
-    each output-channel loss to input windows, integrate absolute gradients over
-    the lag dimension, and apply causal relation symmetry-based sparsification.
+    基本思路是：
 
-    The original causal relation repository can still be used through :mod:`causal_relation_adapter`.
-    This local implementation is intentionally small so the main pipeline can be
-    tested without modifying or depending on causal relation internals.
+    1. 在正常行为的多变量时间序列上训练预测器；
+    2. 对每个输出通道单独计算预测损失；
+    3. 将该损失反传到输入时间窗口；
+    4. 对输入通道的绝对梯度在样本维度和 lag 维度上求平均；
+    5. 通过矩阵与其转置的差保留方向不对称部分，形成稀疏有向先验。
+
+    外部 causal relation 仓库仍然可以通过 ``causal_relation_adapter`` 接入。
+    这里保留一个小实现，是为了让主流程在没有外部依赖时也能跑通并测试。
     """
 
     def __init__(
@@ -124,10 +142,9 @@ class GradientCausalMiner:
         self.batch_size = batch_size
         self.seed = seed
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        # The tiny event-tensor miner is used in unit tests and small main runs.
-        # On high-core CI/servers PyTorch's default CPU thread count can dominate
-        # the runtime for these small MLPs, so cap it modestly without affecting
-        # CUDA runs or the external causal relation project.
+        # 这个小 MLP 主要服务单元测试和轻量实验。高核 CPU 机器上，PyTorch
+        # 默认线程数可能让小模型的调度开销超过实际计算开销；CPU 模式下适度
+        # 限制线程数可以减少波动，同时不影响 CUDA 运行和外部 GCAD 项目。
         if self.device == "cpu":
             try:
                 torch.set_num_threads(min(4, max(1, torch.get_num_threads())))
@@ -137,6 +154,7 @@ class GradientCausalMiner:
         self.train_loss_: list[float] = []
 
     def _windows(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """构造监督学习窗口：过去 ``lag`` 个时间步预测当前时间步。"""
         if x.ndim != 2:
             raise ValueError(f"expected [T, C] tensor, got shape {x.shape}")
         if len(x) <= self.lag:
@@ -148,6 +166,7 @@ class GradientCausalMiner:
         return np.asarray(xs, dtype=np.float32), np.asarray(ys, dtype=np.float32)
 
     def fit_predictor(self, x: np.ndarray) -> "GradientCausalMiner":
+        """在源上下文正常行为张量上训练预测器。"""
         torch.manual_seed(self.seed)
         np.random.seed(self.seed)
         xs, ys = self._windows(x)
@@ -174,6 +193,7 @@ class GradientCausalMiner:
         return self
 
     def discover(self, x: np.ndarray, sample_limit: int | None = None) -> np.ndarray:
+        """通过输出通道损失的梯度反传来估计有向影响矩阵。"""
         if self.model is None:
             self.fit_predictor(x)
         assert self.model is not None
@@ -194,16 +214,18 @@ class GradientCausalMiner:
                 xb.grad.zero_()
             loss = torch.mean((pred[:, out_ch] - yb[:, out_ch]) ** 2)
             grad = torch.autograd.grad(loss, xb, retain_graph=True, create_graph=False)[0]
-            # [samples, lag, input_ch] -> [input_ch]
+            # 梯度形状为 [samples, lag, input_ch]，这里压缩成每个输入通道
+            # 对当前输出通道的平均影响强度。
             g = torch.mean(torch.abs(grad), dim=(0, 1))
             causal.append(g.detach().cpu().numpy())
-        # rows=input channel, cols=predicted/output channel
+        # 行表示输入/source channel，列表示被预测的 target/output channel。
         mat = np.stack(causal, axis=1).astype(np.float32)
         return self.sparsify(mat, self.sparse_threshold)
 
     @staticmethod
     def sparsify(matrix: np.ndarray, threshold: float = 0.0) -> np.ndarray:
-        # causal-relation-inspired symmetry subtraction: keep asymmetric direction strength.
+        # causal-relation 风格的对称差分：A->B 与 B->A 中更强的一侧会被保留，
+        # 对称共同部分被削弱，从而突出方向性而不是单纯共现。
         diff = matrix - matrix.T
         out = np.maximum(diff, 0.0)
         diag = np.diag(matrix).copy()
@@ -216,6 +238,7 @@ class GradientCausalMiner:
         return out.astype(np.float32)
 
     def fit_prior(self, x: np.ndarray, channel_to_key: Sequence[str], sample_limit: int | None = None) -> CausalPrior:
+        """完成训练、因果发现，并把矩阵封装成可保存的 ``CausalPrior``。"""
         self.fit_predictor(x)
         mat = self.discover(x, sample_limit=sample_limit)
         return CausalPrior(

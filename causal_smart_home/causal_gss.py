@@ -1,3 +1,11 @@
+"""把挖掘出的因果先验整理成生成提示的辅助工具。
+
+这个模块里的早期入口可以学习 device-level prior，把数字设备 ID 映射成可读
+设备名，并渲染 prompt 文本。当前主流程主要使用
+``causal_relation_prior_source`` 和 ``causal_gss_reweight``，但这里的函数仍
+适合做交互式检查、边表展示和旧格式 prompt 辅助生成。
+"""
+
 from __future__ import annotations
 
 import ast
@@ -22,6 +30,12 @@ SOFT_CAUSAL_HINT_INTRO = (
 
 @dataclass(frozen=True)
 class DeviceCausalEdge:
+    """带设备名的 device-level GCAD 边。
+
+    ``source``/``target`` 保留机器可读通道键，例如 ``d:13``；
+    ``source_name``/``target_name`` 用于人读报告和 prompt。
+    """
+
     source: str
     target: str
     source_name: str
@@ -36,6 +50,7 @@ class DeviceCausalEdge:
 
 
 def load_pickle_sequences(path: str | Path) -> list[BehaviorSequence]:
+    """读取 Gen pickle，并统一转换为 ``BehaviorSequence`` 对象。"""
     with open(path, "rb") as f:
         raw = pickle.load(f)
     return load_numeric_sequences(raw)
@@ -50,6 +65,7 @@ def learn_device_causal_relation_prior(
     hidden: int = 16,
     sample_limit: int | None = None,
 ) -> CausalPrior:
+    """从源上下文正常序列中挖掘 device-level GCAD prior。"""
     tensorized = EventTensorizer(level="device", count_mode="binary", decay=0.1).fit_transform(sequences)
     if not tensorized.channel_to_key:
         raise ValueError("no device channels found in source training data")
@@ -66,6 +82,7 @@ def learn_device_causal_relation_prior(
 
 
 def load_id_name_mapping(path: str | Path | None, preferred_names: Sequence[str] | None = None) -> dict[int, str]:
+    """从 JSON 或 Gen ``dictionary.py`` 风格文件中读取设备 ID 到名称的映射。"""
     if path is None:
         return {}
     path = Path(path)
@@ -132,6 +149,7 @@ def _normalize_name_to_id(mapping: Mapping[Any, Any]) -> dict[int, str]:
 
 
 def device_key_to_name(key: str, device_id_to_name: Mapping[int, str] | None = None) -> str:
+    """把 ``d:3`` 这类标准通道键转换成可读设备名。"""
     prefix = "d:"
     if key.startswith(prefix):
         raw = key[len(prefix) :]
@@ -151,6 +169,7 @@ def map_device_edges(
     top_k_edges: int = 20,
     min_weight: float | None = None,
 ) -> list[DeviceCausalEdge]:
+    """把 prior 矩阵中的行列索引转换成带设备名称的有向边列表。"""
     return [
         DeviceCausalEdge(
             source=str(edge["source"]),
@@ -172,6 +191,7 @@ def build_causal_hints_payload(
     source_train_pkl: str | Path,
     level: str = "device",
 ) -> dict[str, Any]:
+    """构造描述软因果提示的 JSON payload。"""
     return {
         "hint_type": "causal_gss_device_prior",
         "level": level,
@@ -191,6 +211,7 @@ def build_causal_hints_payload(
 
 
 def format_causal_hints_for_prompt(payload: Mapping[str, Any]) -> str:
+    """把因果边渲染成人类可读的 prompt 文本。"""
     lines = [
         "",
         "causal-relation-guided GSS device-level causal hints (soft constraints):",
@@ -218,6 +239,7 @@ def format_causal_hints_for_prompt(payload: Mapping[str, Any]) -> str:
 
 
 def render_edges_markdown(edges: Sequence[DeviceCausalEdge], payload: Mapping[str, Any]) -> str:
+    """把 top causal edges 渲染成 Markdown 审计表。"""
     lines = [
         "# Top Device-Level causal relation Causal Edges",
         "",
