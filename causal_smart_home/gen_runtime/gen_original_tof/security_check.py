@@ -1,4 +1,4 @@
-"""仓库内拷贝的 Gen 原始 TOF/security-check 实现。
+"""项目内 Gen 原始 TOF/security-check 实现。
 
 CausalSmartHome 通过 ``gen_original_tof.py`` 调用本文件，而不是重新实现原始
 two-stage TOF。修改这里应被视为修改 Gen baseline 本身，需要格外谨慎。

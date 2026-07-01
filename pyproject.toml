@@ -32,10 +32,9 @@ norecursedirs = [
   "venv",
   "env",
   "outputs",
+  "data",
   "backups",
   "external_sources",
-  "causal_smart_home/gen_core",
-  "causal_smart_home/resources",
 ]
 python_files = ["test_*.py"]
 addopts = "--import-mode=importlib"

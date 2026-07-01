@@ -30,10 +30,8 @@ from causal_smart_home.gen_downstream_ad import (
     load_pickle,
     run_gen_downstream_ad_experiment,
 )
+from causal_smart_home.experiment_paths import GEN_ROOT
 from causal_smart_home.json_utils import jsonable
-
-
-GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
 
 PROPOSED_VARIANT = "proposed_causal_gss_codex_causal_tof"
 ABLATION_VARIANT = "ablation_no_causal_tof"

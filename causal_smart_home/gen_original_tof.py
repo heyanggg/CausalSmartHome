@@ -1,7 +1,7 @@
 """Gen 原始两阶段 TOF 的包装器。
 
 本项目刻意不重写 SmartGen/Gen 的 TOF 逻辑。这个包装器只负责把生成数据复制到
-vendored Gen 代码期望的目录结构中，调用 ``security_check.py``，然后把 Gen
+项目内 Gen 运行代码期望的目录结构中，调用 ``security_check.py``，然后把 Gen
 选择出的结果复制回 CausalSmartHome 的运行目录，并写出审计报告。
 """
 

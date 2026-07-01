@@ -14,11 +14,21 @@ from .gen_downstream_ad import ENV_BY_SCENARIO, SCENARIO_BY_ENV, SOURCE_ENV_BY_T
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT_ROOT = PROJECT_ROOT / "outputs" / "main_experiment"
+
+# 规范化后的项目目录。旧结构已不再作为运行兜底，所有实验入口都从这里解析。
+DEFAULT_INPUT_ROOT = PROJECT_ROOT / "data" / "main_experiment"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "main_runs"
-GEN_ROOT = PROJECT_ROOT / "causal_smart_home" / "gen_core"
-DATA_ROOT = PROJECT_ROOT / "causal_smart_home" / "resources" / "gen_data"
+GEN_ROOT = PROJECT_ROOT / "causal_smart_home" / "gen_runtime"
+DATA_ROOT = PROJECT_ROOT / "data" / "gen"
+GEN_RUNTIME_DATA_ROOT = PROJECT_ROOT / "data" / "gen_runtime"
+REFERENCE_ROOT = PROJECT_ROOT / "data" / "reference_gen"
 DICTIONARY_PY = DATA_ROOT / "dictionary.py"
+
+
+def normalize_project_path(path: str | Path) -> Path:
+    """把相对路径解释为项目根目录下的绝对路径。"""
+    raw = Path(path)
+    return raw if raw.is_absolute() else PROJECT_ROOT / raw
 
 ABLATION_VARIANT = "ablation_no_causal_tof"
 PROPOSED_VARIANT = "proposed_causal_gss_codex_causal_tof"
@@ -131,8 +141,7 @@ def target_pkl_from_stage_config(paths: StagePaths) -> Path | None:
     target = payload.get("target_pkl")
     if not target:
         return None
-    target_path = Path(target)
-    return target_path if target_path.is_absolute() else PROJECT_ROOT / target_path
+    return normalize_project_path(target)
 
 
 def default_downstream_out_dir(root: str | Path, dataset: str, scenario: str, seed: int, variant: str) -> Path:

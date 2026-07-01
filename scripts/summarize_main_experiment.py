@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from causal_smart_home.experiment_paths import DEFAULT_INPUT_ROOT
 from causal_smart_home.json_utils import jsonable
 
 PER_SEED_FIELDS = [
@@ -58,8 +59,8 @@ KEPT_VARIANTS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Summarize the current main experiment downstream AD results.")
-    parser.add_argument("--runs-root", type=Path, default=REPO_ROOT / "outputs" / "main_experiment")
-    parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs" / "main_experiment" / "summary")
+    parser.add_argument("--runs-root", type=Path, default=DEFAULT_INPUT_ROOT)
+    parser.add_argument("--out-dir", type=Path, default=DEFAULT_INPUT_ROOT / "summary")
     parser.add_argument("--metrics-glob", default="**/normalized_metrics.json")
     return parser.parse_args()
 

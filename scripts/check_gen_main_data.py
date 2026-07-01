@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""检查主实验所需的 vendored Gen 数据和 checkpoint 是否齐全。"""
+"""检查主实验所需的项目内 Gen 数据、运行资产和 checkpoint 是否齐全。"""
 
 from __future__ import annotations
 
@@ -23,16 +23,12 @@ from causal_smart_home.gen_downstream_ad import (
     SOURCE_ENV_BY_TARGET_ENV,
     default_gen_paths,
 )
-
-
-GEN_ROOT = REPO_ROOT / "causal_smart_home" / "gen_core"
-DATA_ROOT = REPO_ROOT / "causal_smart_home" / "resources" / "gen_data"
-REFERENCE_ROOT = REPO_ROOT / "outputs" / "reference_gen"
+from causal_smart_home.experiment_paths import DATA_ROOT, GEN_ROOT, REFERENCE_ROOT
 PAPER_PATH = REPO_ROOT / "SmartGen Synthesizing Context-Aware User Behavior Data for Adaptive Smart Home Intelligence  Proce.pdf"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Check the vendored SmartGen data needed by the FR/SP/US main experiments.")
+    parser = argparse.ArgumentParser(description="Check the in-project Gen data needed by the FR/SP/US main experiments.")
     parser.add_argument("--json", action="store_true", help="Print the full check report as JSON.")
     return parser.parse_args()
 

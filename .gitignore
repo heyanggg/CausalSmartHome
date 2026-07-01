@@ -102,9 +102,23 @@ temp/
 # Keep placeholder files when needed
 !.gitkeep
 
-# Track the small Gen reference summaries used in documentation.
-!outputs/
-outputs/*
-!outputs/reference_gen/
-!outputs/reference_gen/**
-!outputs/reference_gen/**/*.csv
+# Track small metadata in the normalized data layout; large pkl/checkpoint
+# artifacts remain ignored by the binary artifact rules above.
+!data/
+data/*
+!data/gen/
+data/gen/*
+!data/gen/**/
+!data/gen/README.md
+!data/gen/dictionary.py
+!data/gen/**/action_transitions.json
+!data/gen/**/*.txt
+!data/gen_runtime/
+data/gen_runtime/*
+!data/gen_runtime/README.md
+!data/main_experiment/
+data/main_experiment/*
+!data/main_experiment/README.md
+!data/reference_gen/
+!data/reference_gen/**
+!data/reference_gen/**/*.csv

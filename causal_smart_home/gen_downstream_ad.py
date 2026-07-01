@@ -1,6 +1,6 @@
 """运行 Gen 内置的下游异常检测协议。
 
-本模块保持最终评估与 Gen 一致：导入 vendored Transformer autoencoder 和数据集
+本模块保持最终评估与 Gen 一致：导入项目内 Gen Transformer autoencoder 和数据集
 类，在生成的 normal 数据上训练，用 validation reconstruction loss 的分位数
 确定异常阈值，再在 Gen 的 target-normal + attack test set 上评估。
 """
@@ -102,7 +102,7 @@ class GenDownstreamADRunConfig:
 
 
 def default_gen_paths(gen_root: str | Path, dataset: str, env: str) -> dict[str, Path]:
-    """返回某个 dataset/env 单元格对应的 vendored Gen attack/test 路径。"""
+    """返回某个 dataset/env 单元格对应的项目内 Gen attack/test 路径。"""
     if dataset not in DATASETS:
         raise ValueError(f"dataset must be one of: {', '.join(DATASETS)}")
     if env not in ENVIRONMENTS:

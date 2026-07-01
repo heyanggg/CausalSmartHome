@@ -1,7 +1,7 @@
 # Gen Data Resources
 
-This directory contains the vendored Gen data needed by the CausalSmartHome main
-experiment matrix:
+This directory contains the Gen FR/SP/US behavior data needed by the
+CausalSmartHome main experiment matrix:
 
 ```text
 FR/SP/US x spring/night/multiple
@@ -14,8 +14,9 @@ FR/SP/US x spring/night/multiple
 - `{fr,sp,us}/{spring,night,multiple}/`: target-context test/split data and any
   target auxiliary files provided by Gen.
 
-The runnable Gen code used by TOF and downstream AD is vendored under
-`causal_smart_home/gen_core/`.
+The runnable Gen TOF/AD code is under `causal_smart_home/gen_runtime/`.
+Checkpoint, attack/test, synthetic, and filter runtime assets are under
+`data/gen_runtime/`.
 
 Use `python scripts/check_gen_main_data.py` from the project root to verify the
 required Gen data, checkpoints, attacks, tests, and reference result files.

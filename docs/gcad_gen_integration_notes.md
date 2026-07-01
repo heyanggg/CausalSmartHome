@@ -459,7 +459,7 @@ filter: sample_weight < min_weight 的序列删除
 
 `causal_smart_home/gen_downstream_ad.py`
 
-导入 vendored Gen `anomaly_detection_pipeline/models1.py`，并保持 Gen 的评估协议：
+导入项目内 Gen 运行代码 `causal_smart_home/gen_runtime/anomaly_detection_pipeline/models1.py`，并保持 Gen 的评估协议：
 
 ```text
 synthetic normal pkl
@@ -514,7 +514,7 @@ scripts/validate_and_pack_codex_generation.py
 
 scripts/run_gen_original_tof.py
   -> gen_original_tof.run_gen_original_tof
-     -> vendored gen_core/gen_original_tof/security_check.py
+     -> causal_smart_home/gen_runtime/gen_original_tof/security_check.py
 
 scripts/run_causal_tof.py
   -> causal_tof.extract_guarded_edges
@@ -523,7 +523,7 @@ scripts/run_causal_tof.py
 
 scripts/run_gen_downstream_ad.py
   -> gen_downstream_ad.run_gen_downstream_ad_experiment
-     -> vendored gen_core/anomaly_detection_pipeline/models1.py
+     -> causal_smart_home/gen_runtime/anomaly_detection_pipeline/models1.py
 
 scripts/summarize_main_experiment.py
   -> collect_per_seed_rows
