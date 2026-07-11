@@ -2,8 +2,7 @@
 
 Gen 的 GSS 从源上下文正常序列中统计 ``device A -> device B`` 这类经验转移；
 GCAD 提供设备间的有向 causal-relation 强度。本模块把两类边都规范化到同一
-套 device key 上，先使用 target guard 处理过的 causal strength，再计算供
-生成器遵循的最终结构提示分数。
+套 device key 上，再计算供生成器遵循的最终结构提示分数。
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ def reweight_gss_edges(
     add_causal_edges: bool = False,
     top_k: int = 50,
 ) -> dict:
-    """让经过 target guard 的 causal-relation 边参与 Gen GSS 评分。
+    """让 source-only causal-relation 边参与 Gen GSS 评分。
 
     ``transition_edges`` 提供 Gen 原有的经验转移概率，``causal_edges`` 提供
     GCAD 的方向性强度；两者归一化后通过 additive 或 multiplicative 方式融合。
@@ -79,19 +78,19 @@ def reweight_gss_edges(
 
     causal_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
     for edge in causal_edges:
-        # 不同 prior 格式在规范化后可能落到同一个设备对上；这里保留 guarded
+        # 不同 prior 格式在规范化后可能落到同一个设备对上；这里保留
         # 强度最大的那一条，避免重复边让 prompt 过于噪声化。
         pair = (_edge_device_key(edge, "source"), _edge_device_key(edge, "target"))
         if pair[0] == "unknown" or pair[1] == "unknown":
             continue
         current = causal_by_pair.get(pair)
-        strength = _guarded_strength(edge)
-        if current is None or strength > _guarded_strength(current):
+        strength = _causal_strength(edge)
+        if current is None or strength > _causal_strength(current):
             causal_by_pair[pair] = dict(edge)
 
     transition_scores = [float(edge.get("transition_score", 0.0)) for edge in transition_edges]
     max_transition = max(transition_scores) if transition_scores else 0.0
-    causal_strengths = [_guarded_strength(edge) for edge in causal_by_pair.values()]
+    causal_strengths = [_causal_strength(edge) for edge in causal_by_pair.values()]
     max_causal = max(causal_strengths) if causal_strengths else 0.0
 
     out_edges: list[dict[str, Any]] = []
@@ -145,7 +144,7 @@ def reweight_gss_edges(
                 # 纯 causal augmented edge 在 multiplicative 模式下没有原始
                 # transition_score；这里给它一个由因果强度决定的分数，避免它
                 # 因为“没有相邻转移计数”而直接归零。
-                row["final_score"] = lambda_causal * row["normalized_guarded_causal_strength"]
+                row["final_score"] = lambda_causal * row["normalized_causal_strength"]
             out_edges.append(row)
 
     out_edges.sort(key=lambda edge: float(edge.get("final_score", 0.0)), reverse=True)
@@ -153,7 +152,7 @@ def reweight_gss_edges(
         out_edges = out_edges[:top_k]
 
     return {
-        "hint_type": "guarded_causal_reweighted_gss",
+        "hint_type": "source_only_causal_reweighted_gss",
         "level": "device",
         "config": {
             "lambda_causal": lambda_causal,
@@ -166,9 +165,7 @@ def reweight_gss_edges(
             "input_causal_edges": len(causal_edges),
             "output_edges": len(out_edges),
             "num_causal_relation_augmented_edges": sum(1 for edge in out_edges if edge.get("edge_origin") == "causal_relation_augmented"),
-            "num_guard_suppressed_edges": sum(1 for edge in out_edges if edge.get("guard_action") == "suppress"),
-            "num_guard_downweighted_edges": sum(1 for edge in out_edges if edge.get("guard_action") == "downweight"),
-            "avg_guarded_causal_strength": _mean([float(edge.get("guarded_causal_strength", 0.0)) for edge in out_edges]),
+            "avg_causal_strength": _mean([float(edge.get("causal_strength", 0.0)) for edge in out_edges]),
         },
         "edges": out_edges,
     }
@@ -189,8 +186,8 @@ def _score_edge_row(
     transition_score = float(transition_edge.get("transition_score", 0.0))
     normalized_transition = transition_score / max_transition if max_transition > 0 else 0.0
     raw_causal = _raw_strength(causal_edge)
-    guarded_causal = _guarded_strength(causal_edge)
-    normalized_causal = guarded_causal / max_causal if max_causal > 0 else 0.0
+    causal_strength = _causal_strength(causal_edge)
+    normalized_causal = causal_strength / max_causal if max_causal > 0 else 0.0
     if mode == "additive":
         # 加法模式：GSS 转移分数和 GCAD 因果强度相加，只有因果证据的边也可以
         # 自然获得非零分。
@@ -212,12 +209,10 @@ def _score_edge_row(
         "transition_score": transition_score,
         "normalized_transition_score": normalized_transition,
         "raw_causal_strength": raw_causal,
-        "guarded_causal_strength": guarded_causal,
-        "normalized_guarded_causal_strength": normalized_causal,
+        "causal_strength": causal_strength,
+        "normalized_causal_strength": normalized_causal,
         "final_score": float(final_score),
         "edge_origin": origin,
-        "guard_action": str(causal_edge.get("guard_action", "keep")),
-        "guard_reason": str(causal_edge.get("guard_reason", "")),
         "lag": causal_edge.get("lag"),
     }
 
@@ -228,10 +223,10 @@ def _raw_strength(edge: Mapping[str, Any]) -> float:
     return float(edge.get("raw_weight", edge.get("raw_causal_strength", edge.get("weight", 0.0))))
 
 
-def _guarded_strength(edge: Mapping[str, Any]) -> float:
+def _causal_strength(edge: Mapping[str, Any]) -> float:
     if not edge:
         return 0.0
-    return float(edge.get("guarded_weight", edge.get("guarded_causal_strength", edge.get("weight", 0.0))))
+    return float(edge.get("weight", edge.get("raw_weight", 0.0)))
 
 
 def _edge_device_key(edge: Mapping[str, Any], role: str) -> str:

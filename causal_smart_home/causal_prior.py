@@ -43,7 +43,7 @@ class CausalPrior:
         """按权重从高到低列出非零有向边。
 
         每条边都保留 source/target 的通道键、矩阵下标、权重和 lag，后续
-        target guard、GSS 重加权和 prompt 构建都依赖这些字段。
+        GSS 重加权和 prompt 构建都依赖这些字段。
         """
         mat = self.np_matrix
         edges: list[tuple[float, int, int]] = []

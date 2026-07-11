@@ -26,13 +26,11 @@ PER_SEED_FIELDS = [
     "input_pkl",
     "input_stage",
     "used_gen_original_tof",
-    "used_causal_tof",
     "downstream_pipeline",
     "generator",
     "generation_model",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
-    "num_generated_after_causal_tof",
     "train_size",
     "validation_size",
     "test_size",
@@ -52,8 +50,7 @@ PER_SEED_FIELDS = [
 METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
 
 KEPT_VARIANTS = {
-    "ablation_no_causal_tof",
-    "proposed_causal_gss_codex_causal_tof",
+    "proposed_zero_target_causal_gss_codex",
 }
 
 
@@ -118,7 +115,6 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
         row["input_pkl"] = payload.get("synthetic_pkl", "")
     for key in [
         "used_gen_original_tof",
-        "used_causal_tof",
     ]:
         value = row.get(key)
         if isinstance(value, str):
@@ -128,7 +124,6 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
     for key in [
         "num_generated_before_tof",
         "num_generated_after_gen_tof",
-        "num_generated_after_causal_tof",
         "train_size",
         "validation_size",
         "test_size",

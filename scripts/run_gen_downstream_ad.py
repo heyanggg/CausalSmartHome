@@ -33,11 +33,8 @@ from causal_smart_home.gen_downstream_ad import (
 from causal_smart_home.experiment_paths import GEN_ROOT
 from causal_smart_home.json_utils import jsonable
 
-PROPOSED_VARIANT = "proposed_causal_gss_codex_causal_tof"
-ABLATION_VARIANT = "ablation_no_causal_tof"
-
+PROPOSED_VARIANT = "proposed_zero_target_causal_gss_codex"
 VARIANTS = {
-    ABLATION_VARIANT,
     PROPOSED_VARIANT,
 }
 
@@ -49,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--variant", required=True, choices=sorted(VARIANTS))
     parser.add_argument("--generated-pkl", required=True, type=Path, help="Input pkl for this AD variant.")
     parser.add_argument("--pre-tof-pkl", type=Path, help="Pre-TOF generated pkl used only for provenance/counts.")
-    parser.add_argument("--gen-tof-pkl", type=Path, help="Gen original TOF output pkl used only for provenance/counts when current input is Causal-TOF output.")
+    parser.add_argument("--gen-tof-pkl", type=Path, help="Gen original TOF output pkl used for provenance/counts.")
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--gen-root", type=Path, default=GEN_ROOT)
@@ -118,23 +115,16 @@ def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
 
     before = pre_tof_len
     after_gen = gen_tof_len
-    after_causal = None
-    if variant == ABLATION_VARIANT:
+    if variant == PROPOSED_VARIANT:
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_gen = current_len
-    elif variant == PROPOSED_VARIANT:
-        before = before if before is not None else tof_report.get("num_generated_before_tof")
-        after_gen = after_gen if after_gen is not None else tof_report.get("num_generated_after_gen_tof")
-        after_causal = current_len
 
     return {
         "input_pkl": str(args.generated_pkl.resolve()),
         "input_stage": input_stage_for_variant(variant),
         "used_gen_original_tof": used_gen_original_tof_for_variant(variant),
-        "used_causal_tof": used_causal_tof_for_variant(variant),
         "num_generated_before_tof": before,
         "num_generated_after_gen_tof": after_gen,
-        "num_generated_after_causal_tof": after_causal,
     }
 
 
@@ -174,18 +164,12 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
 
 
 def input_stage_for_variant(variant: str) -> str:
-    if variant == ABLATION_VARIANT:
-        return "gen_original_tof"
     if variant == PROPOSED_VARIANT:
-        return "gen_original_tof_plus_causal_tof"
+        return "gen_original_tof"
     return variant
 
 
 def used_gen_original_tof_for_variant(variant: str) -> bool:
-    return variant in {ABLATION_VARIANT, PROPOSED_VARIANT}
-
-
-def used_causal_tof_for_variant(variant: str) -> bool:
     return variant == PROPOSED_VARIANT
 
 
@@ -258,13 +242,11 @@ PER_SEED_FIELDS = [
     "input_pkl",
     "input_stage",
     "used_gen_original_tof",
-    "used_causal_tof",
     "downstream_pipeline",
     "generator",
     "generation_model",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
-    "num_generated_after_causal_tof",
     "train_size",
     "validation_size",
     "test_size",
@@ -369,7 +351,6 @@ def main() -> None:
         "manual_generation": provenance.get("manual_generation", True),
         "input_stage": input_stage_for_variant(variant),
         "used_gen_original_tof": used_gen_original_tof_for_variant(variant),
-        "used_causal_tof": used_causal_tof_for_variant(variant),
         "epochs": args.epochs,
         "split_ratio": args.split_ratio,
         "device": args.device,

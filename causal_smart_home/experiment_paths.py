@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,23 +24,8 @@ REFERENCE_ROOT = PROJECT_ROOT / "data" / "reference_gen"
 DICTIONARY_PY = DATA_ROOT / "dictionary.py"
 
 
-def normalize_project_path(path: str | Path) -> Path:
-    """把相对路径解释为项目根目录下的绝对路径。"""
-    raw = Path(path)
-    return raw if raw.is_absolute() else PROJECT_ROOT / raw
-
-ABLATION_VARIANT = "ablation_no_causal_tof"
-PROPOSED_VARIANT = "proposed_causal_gss_codex_causal_tof"
-VARIANTS = {ABLATION_VARIANT, PROPOSED_VARIANT}
-
-# 主实验历史配置并不总是使用同一个 target-normal 文件：部分 spring/night
-# 单元格用 split_test.pkl 来表示下游 AD 的 target-normal 集合，multiple 和 US
-# 单元格则使用 test.pkl。这里把已接受主实验口径固定下来，供新 main 入口推断。
-TARGET_PKL_NAME_BY_DATASET_ENV = {
-    ("fr", "spring"): "split_test.pkl",
-    ("fr", "night"): "split_test.pkl",
-    ("sp", "spring"): "split_test.pkl",
-}
+PROPOSED_VARIANT = "proposed_zero_target_causal_gss_codex"
+VARIANTS = {PROPOSED_VARIANT}
 
 
 @dataclass(frozen=True)
@@ -70,12 +54,8 @@ class StagePaths:
         return self.seed_dir / "gen_original_tof" / "gen_tof.pkl"
 
     @property
-    def causal_tof_pkl(self) -> Path:
-        return self.seed_dir / "causal_tof" / "generated_gen_tof_causal_tof.pkl"
-
-    @property
-    def guarded_hints_json(self) -> Path:
-        return self.seed_dir / "causal_gss" / "guarded_reweighted_gss_hints.json"
+    def causal_reweighted_hints_json(self) -> Path:
+        return self.seed_dir / "causal_gss" / "causal_reweighted_gss_hints.json"
 
     @property
     def causal_gss_dir(self) -> Path:
@@ -119,51 +99,15 @@ def source_pkl_for(dataset: str, scenario: str) -> Path:
     return DATA_ROOT / dataset / source_env / "trn.pkl"
 
 
-def target_pkl_for(dataset: str, scenario: str) -> Path:
-    """返回该目标场景的 target normal pkl，用于 guard 或 Causal-TOF 分布项。"""
-    env = env_for_scenario(scenario)
-    filename = TARGET_PKL_NAME_BY_DATASET_ENV.get((dataset, env), "test.pkl")
-    return DATA_ROOT / dataset / env / filename
-
-
-def target_pkl_from_stage_config(paths: StagePaths) -> Path | None:
-    """从已有 causal-GSS 配置中读取 target pkl，缺失时返回 None。
-
-    这用于复现实验阶段运行：已有 cell 的 target 选择以当时保存的配置为准，
-    新 cell 才落回 ``target_pkl_for`` 的主实验默认映射。
-    """
-    if not paths.causal_gss_config.exists():
-        return None
-    try:
-        payload = json.loads(paths.causal_gss_config.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
-    target = payload.get("target_pkl")
-    if not target:
-        return None
-    return normalize_project_path(target)
-
-
 def default_downstream_out_dir(root: str | Path, dataset: str, scenario: str, seed: int, variant: str) -> Path:
     """返回实验级 main 默认写下游 AD 结果的位置。"""
     return Path(root) / experiment_key(dataset, scenario) / f"seed{seed}" / "downstream_ad" / variant
 
 
-def default_causal_tof_dir(root: str | Path, dataset: str, scenario: str, seed: int) -> Path:
-    """返回实验级 main 默认写 Causal-TOF 结果的位置。"""
-    return Path(root) / experiment_key(dataset, scenario) / f"seed{seed}" / "causal_tof"
-
-
 def input_for_variant(paths: StagePaths, variant: str) -> tuple[Path, Path | None, Path | None]:
     """根据 variant 推断下游 AD 的 generated/pre_tof/gen_tof 参数。"""
-    if variant == ABLATION_VARIANT:
-        return paths.gen_tof_pkl, paths.pre_tof_pkl if paths.pre_tof_pkl.exists() else None, None
     if variant == PROPOSED_VARIANT:
-        return (
-            paths.causal_tof_pkl,
-            paths.pre_tof_pkl if paths.pre_tof_pkl.exists() else None,
-            paths.gen_tof_pkl,
-        )
+        return paths.gen_tof_pkl, paths.pre_tof_pkl if paths.pre_tof_pkl.exists() else None, paths.gen_tof_pkl
     raise ValueError(f"unknown variant: {variant}")
 
 

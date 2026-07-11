@@ -52,7 +52,7 @@ class BehaviorEvent:
         return [int(self.day), int(self.hour_slot), int(self.device), int(self.action)]
 
     def key(self, level: str = "action") -> str:
-        """生成因果挖掘和分布 guard 使用的通道键。"""
+        """生成因果挖掘与 GSS 对齐使用的通道键。"""
         if level == "action":
             return f"a:{self.action}"
         if level == "device":

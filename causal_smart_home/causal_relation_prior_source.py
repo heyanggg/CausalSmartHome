@@ -7,7 +7,7 @@
 3. 从源上下文 Gen pkl 通过 adapter fallback 现场挖掘。
 
 无论来源是哪一种，最终都会标准化成同一个 ``ResolvedCausalRelationPrior``
-结构。这样 target guard、GSS 重加权、prompt 构建、Causal-TOF 都不需要关心
+结构。这样 GSS 重加权和 prompt 构建不需要关心
 GCAD 信号到底来自外部产物还是本地轻量 miner。
 """
 
@@ -381,7 +381,7 @@ def _standardize_edges(edges: Iterable[Mapping[str, Any]], channels: Sequence[st
             source_id = _index_by_channel(channels, source)
         if target_id is None:
             target_id = _index_by_channel(channels, target)
-        weight = float(edge.get("weight", edge.get("raw_weight", edge.get("guarded_weight", 0.0))))
+        weight = float(edge.get("weight", edge.get("raw_weight", 0.0)))
         row = dict(edge)
         row.update(
             {

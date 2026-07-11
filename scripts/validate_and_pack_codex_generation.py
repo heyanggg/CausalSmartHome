@@ -39,10 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-count", type=int, default=50)
     parser.add_argument("--expected-length", type=int)
     parser.add_argument("--source-pkl", type=Path)
-    parser.add_argument("--target-pkl", type=Path)
     parser.add_argument("--schema-json", type=Path)
-    parser.add_argument("--guard-report-json", type=Path)
-    parser.add_argument("--guarded-hints-json", type=Path)
+    parser.add_argument("--causal-hints-json", type=Path)
     parser.add_argument("--resolved-causal-relation-prior-json", type=Path)
     return parser.parse_args()
 
@@ -118,14 +116,13 @@ def main() -> None:
         "jsonl": str(args.input_jsonl.resolve()),
         "pkl": str(args.out_pkl.resolve()),
         "schema_json": resolved_or_none(args.schema_json),
-        "guard_report_json": resolved_or_none(args.guard_report_json),
-        "guarded_hints_json": resolved_or_none(args.guarded_hints_json),
+        "causal_hints_json": resolved_or_none(args.causal_hints_json),
         "resolved_causal_relation_prior_json": resolved_or_none(args.resolved_causal_relation_prior_json),
         "source_pkl": resolved_or_none(args.source_pkl),
-        "target_pkl": resolved_or_none(args.target_pkl),
+        "target_data_used": False,
         "notes": (
             "Sequence content was authored by the Codex generation process from the prompt package, "
-            "guarded GSS hints, causal relation prior, dictionary, and source/target distribution inspection. "
+            "source-only causal-GSS hints, causal relation prior, dictionary, and declared context transition. "
             "This script only validated and packed the authored JSONL."
         ),
     }

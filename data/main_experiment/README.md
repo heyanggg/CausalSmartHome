@@ -1,6 +1,7 @@
 # Main Experiment Artifacts
 
-本目录保存正式主实验的阶段资料、配置、指标和必要的中间 pkl。目录结构为：
+本目录保存 2026-07-11 之前 target-reference-assisted 方法的历史阶段资料、配置、
+指标和必要的中间 pkl。它们不属于当前 Zero-target-data 正式方法。
 
 ```text
 data/main_experiment/{dataset}_{scenario}/seed{seed}/
@@ -12,11 +13,12 @@ data/main_experiment/{dataset}_{scenario}/seed{seed}/
   downstream_ad/
 ```
 
-实验入口默认从这里读取已经确定的主实验阶段输入：
+当前正式新实验不要以这里的 target distribution、Guard 或 Causal-TOF 产物作为输入。
+新实验写入 `outputs/zero_target_runs/`：
 
 ```bash
-python scripts/main_run_causal_tof_and_ad.py --dataset sp --scenario nt --seed 2024
-python scripts/main_run_downstream_ad.py --dataset sp --scenario nt --seed 2024 --variant proposed_causal_gss_codex_causal_tof
+python scripts/main_prepare_generation.py --dataset fr --scenario tt --seed 2024 --out-root outputs/zero_target_runs
+python scripts/main_run_downstream_ad.py --dataset fr --scenario tt --seed 2024 --variant proposed_zero_target_causal_gss_codex --input-root outputs/zero_target_runs --out-root outputs/zero_target_runs
 ```
 
 本目录中的大型 pkl 和运行输出不提交到 Git；需要完整复现实验时，应在本地保留或同步
@@ -28,12 +30,13 @@ python scripts/main_run_downstream_ad.py --dataset sp --scenario nt --seed 2024 
 python scripts/check_project.py --runs-root data/main_experiment
 ```
 
-新复现结果应写入 `outputs/main_runs/`，不要直接覆盖这里的正式历史结果。例如只复现
+新复现结果应写入 `outputs/zero_target_runs/`，不要直接覆盖这里的历史结果。例如只运行
 proposed（不运行消融）可执行：
 
 ```bash
 python scripts/main_run_downstream_ad.py \
-  --dataset fr --scenario st --seed 2024 \
-  --variant proposed_causal_gss_codex_causal_tof \
+  --dataset fr --scenario tt --seed 2024 \
+  --variant proposed_zero_target_causal_gss_codex \
+  --input-root outputs/zero_target_runs --out-root outputs/zero_target_runs \
   --device cuda --cuda-visible-devices 0
 ```

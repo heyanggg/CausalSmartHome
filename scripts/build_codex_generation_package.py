@@ -32,8 +32,7 @@ def main() -> None:
 
     required = [
         "prompt.txt",
-        "guard_report.json",
-        "guarded_reweighted_gss_hints.json",
+        "causal_reweighted_gss_hints.json",
         "resolved_causal_relation_prior.json",
     ]
     for name in required:
@@ -53,8 +52,7 @@ def main() -> None:
         "sequence_format": "flat_quadruples",
         "fields": ["day", "hour_slot", "device_id", "action_id"],
         "causal_gss_dir": str(causal_gss_dir),
-        "guard_mode": "downweight",
-        "downweight_factor": 0.25,
+        "target_data_used": False,
         "reweight_mode": "multiplicative",
         "lambda_causal": 1.0,
     }
@@ -65,7 +63,12 @@ def main() -> None:
 
 def build_instruction(scenario: str) -> str:
     """为单个场景 package 写出面向人工/Codex 的生成协议说明。"""
-    scenario_note = "In SP-ST, pay special attention to Television overuse." if scenario == "sp_st" else f"Use {scenario} target-context normal behavior."
+    suffix = scenario.rsplit("_", 1)[-1]
+    scenario_note = {
+        "st": "Adapt from winter to spring using general seasonal knowledge.",
+        "tt": "Adapt from daytime activity to nighttime activity using the declared schedule change.",
+        "nt": "Adapt from single occupancy to multiple occupancy using the declared household change.",
+    }.get(suffix, f"Adapt behavior to the declared {scenario} context transition.")
     return "\n".join(
         [
             "# Codex Generation Instruction",
@@ -74,9 +77,8 @@ def build_instruction(scenario: str) -> str:
             "",
             "Use:",
             "1. prompt.txt",
-            "2. guarded_reweighted_gss_hints.json",
-            "3. guard_report.json",
-            "4. resolved_causal_relation_prior.json",
+            "2. causal_reweighted_gss_hints.json",
+            "3. resolved_causal_relation_prior.json",
             "",
             "Generate target-context normal smart-home behavior sequences.",
             "",
@@ -88,16 +90,15 @@ def build_instruction(scenario: str) -> str:
             "If the reference files use 10 events per sequence, output 40 integers per sequence.",
             "",
             "Follow these rules:",
-            "1. Use guarded causal-reweighted GSS hints as primary structure.",
+            "1. Use causal-reweighted GSS hints as primary structure.",
             "2. Use raw causal relation hints only as weak background.",
-            "3. If raw causal relation conflicts with guarded hints, follow guarded hints.",
-            "4. Do not over-generate devices listed as overused in guard_report.",
-            f"5. {scenario_note}",
-            "6. Keep target-context device/action distribution plausible.",
-            "7. Do not generate device/action IDs outside known dictionaries.",
-            "8. Preserve reasonable temporal order.",
-            "9. Generate normal behavior sequences, not attacks.",
-            "10. Save metadata with generator = codex_generation and generation_model = Codex.",
+            "3. If raw causal relation conflicts with reweighted hints, follow reweighted hints.",
+            f"4. {scenario_note}",
+            "5. Use only the declared context transition; no target behavior samples are available.",
+            "6. Do not generate device/action IDs outside known dictionaries.",
+            "7. Preserve reasonable temporal order.",
+            "8. Generate normal behavior sequences, not attacks.",
+            "9. Save metadata with generator = codex_generation and generation_model = Codex.",
             "",
             "This package is the fixed Codex generation protocol for CausalSmartHome main experiments.",
             "",

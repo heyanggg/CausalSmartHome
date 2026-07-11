@@ -1,4 +1,4 @@
-"""测试 Gen 转移计数与 guarded GCAD 因果边的融合逻辑。"""
+"""测试 Gen 转移计数与 source-only 因果边的融合逻辑。"""
 
 import json
 
@@ -17,7 +17,7 @@ def test_causal_relation_edge_changes_final_score_and_modes_differ():
         {"source_device": 1, "target_device": 2, "transition_score": 0.2, "count": 2},
         {"source_device": 1, "target_device": 3, "transition_score": 0.4, "count": 4},
     ]
-    causal = [{"source": "d:1", "target": "d:2", "raw_weight": 0.8, "guarded_weight": 0.8, "guard_action": "keep"}]
+    causal = [{"source": "d:1", "target": "d:2", "weight": 0.8}]
     additive = reweight_gss_edges(transitions, causal, lambda_causal=1.0, mode="additive", top_k=10)
     multiplicative = reweight_gss_edges(transitions, causal, lambda_causal=1.0, mode="multiplicative", top_k=10)
     add_12 = next(edge for edge in additive["edges"] if edge["target_device"] == 2)
