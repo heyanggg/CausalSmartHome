@@ -3,6 +3,8 @@
 import json
 import pickle
 
+import pytest
+
 from causal_smart_home.gen_downstream_ad import (
     DEFAULT_THRESHOLD_PERCENTAGES,
     DEFAULT_THRESHOLDS,
@@ -54,6 +56,16 @@ def test_split_generated_to_train_validation_is_deterministic(tmp_path):
     assert len(first_vld) == 2
     assert first_train == second_train
     assert first_vld == second_vld
+
+
+def test_split_generated_to_train_validation_rejects_invalid_inputs(tmp_path):
+    src = tmp_path / "src.pkl"
+    _dump(src, [[1]])
+
+    with pytest.raises(ValueError, match="at least 2 rows"):
+        split_generated_to_train_validation(src, tmp_path / "train.pkl", tmp_path / "vld.pkl")
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        split_generated_to_train_validation(src, tmp_path / "train.pkl", tmp_path / "vld.pkl", split_ratio=1.0)
 
 
 def test_gen_anomaly_dry_run_writes_payload_and_split(tmp_path):

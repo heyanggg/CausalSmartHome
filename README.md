@@ -367,11 +367,27 @@ Run from the project root:
 ```bash
 pytest -q
 python scripts/check_gen_main_data.py
+csh doctor
 csh summarize --runs-root data/main_experiment --out-dir data/main_experiment/summary
 ```
 
 `scripts/check_gen_main_data.py` verifies the local FR/SP/US x
 spring/night/multiple Gen data required by the main experiments.
+`csh doctor` additionally checks the repository layout, runtime symlinks,
+formal proposed-result JSON files, seed/path coordinates, required metric
+fields, and all Gen runtime assets. Use `csh doctor --json` for a machine-readable
+report, or run the equivalent source-tree command:
+
+```bash
+python scripts/check_project.py --runs-root data/main_experiment
+```
+
+Before a GPU run, activate an environment containing the dependencies in
+`requirements.txt` and confirm CUDA from that same interpreter:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
 
 ## Project Structure
 
@@ -402,6 +418,7 @@ spring/night/multiple Gen data required by the main experiments.
 | `scripts/run_*.py` | 阶段级脚本：显式路径参数更多，适合调试单个阶段。 |
 | `scripts/summarize_main_experiment.py` | 收集 normalized metrics，生成 per-seed 正式汇总表。 |
 | `scripts/check_gen_main_data.py` | 检查本地 Gen 数据是否齐全。 |
+| `scripts/check_project.py` | 统一检查项目布局、运行软链接、正式 proposed 指标和 Gen 数据资产。 |
 | `tests/` | 单元测试和管线行为测试。 |
 | `docs/` | GCAD 接入说明和项目框架图。 |
 

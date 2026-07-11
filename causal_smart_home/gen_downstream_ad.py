@@ -136,7 +136,11 @@ def split_generated_to_train_validation(
     seed: int = 2024,
 ) -> tuple[list[Any], list[Any]]:
     """按固定 seed 把生成 normal 数据切分为 train/validation。"""
+    if not 0.0 < split_ratio < 1.0:
+        raise ValueError("split_ratio must be between 0 and 1 (exclusive)")
     data = list(load_pickle(data_file))
+    if len(data) < 2:
+        raise ValueError("generated data must contain at least 2 rows for train/validation splitting")
     rng = random.Random(seed)
     rng.shuffle(data)
     split_index = int(len(data) * split_ratio)
@@ -145,6 +149,20 @@ def split_generated_to_train_validation(
     save_pickle(train_file, train)
     save_pickle(vld_file, vld)
     return train, vld
+
+
+def validate_run_config(config: GenDownstreamADRunConfig) -> None:
+    """在创建输出和启动 GPU 训练前校验实验参数。"""
+    if config.dataset not in DATASETS:
+        raise ValueError(f"dataset must be one of: {', '.join(DATASETS)}")
+    if config.env not in ENVIRONMENTS:
+        raise ValueError(f"env must be one of: {', '.join(ENVIRONMENTS)}")
+    if config.epochs < 1:
+        raise ValueError("epochs must be at least 1")
+    if not 0.0 < config.split_ratio < 1.0:
+        raise ValueError("split_ratio must be between 0 and 1 (exclusive)")
+    if config.threshold_percentage is not None and not 0.0 <= config.threshold_percentage <= 100.0:
+        raise ValueError("threshold_percentage must be between 0 and 100")
 
 
 def _import_gen_models(gen_root: Path):
@@ -466,6 +484,7 @@ def _prepare_train_validation_files(
 
 def run_gen_downstream_ad_experiment(config: GenDownstreamADRunConfig) -> dict[str, Any]:
     """运行完整 Gen downstream AD 协议，并写出 raw metrics payload。"""
+    validate_run_config(config)
     if config.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = config.cuda_visible_devices
 

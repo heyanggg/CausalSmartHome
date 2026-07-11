@@ -28,6 +28,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     check_data.add_argument("--json", action="store_true")
     check_data.set_defaults(func=_check_gen_data_command)
 
+    doctor = subparsers.add_parser("doctor", help="check project layout, runtime assets, and formal results")
+    doctor.add_argument("--runs-root", type=Path, default=DEFAULT_INPUT_ROOT)
+    doctor.add_argument("--json", action="store_true")
+    doctor.set_defaults(func=_doctor_command)
+
     args = parser.parse_args(argv)
     args.func(args)
 
@@ -54,6 +59,19 @@ def _check_gen_data_command(args: argparse.Namespace) -> None:
     else:
         print_text_report(report)
     if report["missing"]:
+        raise SystemExit(1)
+
+
+def _doctor_command(args: argparse.Namespace) -> None:
+    """运行覆盖代码布局、数据和正式结果的统一健康检查。"""
+    from scripts.check_project import build_report, print_text_report
+
+    report = build_report(args.runs_root)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print_text_report(report)
+    if report["issues"]:
         raise SystemExit(1)
 
 
