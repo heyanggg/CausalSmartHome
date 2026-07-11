@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from causal_smart_home.experiment_paths import DEFAULT_INPUT_ROOT, PROPOSED_VARIANT
+from causal_smart_home.experiment_paths import PROPOSED_VARIANT
 from causal_smart_home.gen_downstream_ad import DATASETS, ENVIRONMENTS, SCENARIO_BY_ENV
 from scripts.check_gen_main_data import build_report as build_gen_data_report
 
@@ -38,11 +38,12 @@ REQUIRED_PROPOSED_FIELDS = (
     "device",
     "requested_device",
 )
+ZERO_TARGET_RUNS_ROOT = REPO_ROOT / "outputs" / "zero_target_runs"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run CausalSmartHome project health checks.")
-    parser.add_argument("--runs-root", type=Path, default=DEFAULT_INPUT_ROOT)
+    parser.add_argument("--runs-root", type=Path, default=ZERO_TARGET_RUNS_ROOT)
     parser.add_argument("--json", action="store_true", help="Print the complete report as JSON.")
     return parser.parse_args()
 
@@ -65,7 +66,7 @@ def _read_json(
     return payload
 
 
-def build_report(runs_root: Path = DEFAULT_INPUT_ROOT) -> dict[str, Any]:
+def build_report(runs_root: Path = ZERO_TARGET_RUNS_ROOT) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     for relative in REQUIRED_PROJECT_FILES:
         path = REPO_ROOT / relative
@@ -92,9 +93,6 @@ def build_report(runs_root: Path = DEFAULT_INPUT_ROOT) -> dict[str, Any]:
             for seed_dir in seed_dirs:
                 metrics_path = seed_dir / "downstream_ad" / PROPOSED_VARIANT / "normalized_metrics.json"
                 if not metrics_path.exists():
-                    legacy = seed_dir / "downstream_ad" / "proposed_causal_gss_codex_causal_tof" / "normalized_metrics.json"
-                    metrics_path = legacy if legacy.exists() else metrics_path
-                if not metrics_path.exists():
                     issues.append(_issue("missing_proposed_metrics", metrics_path, "seed has no normalized proposed result"))
                     continue
                 payload = _read_json(metrics_path, issues)
@@ -103,7 +101,7 @@ def build_report(runs_root: Path = DEFAULT_INPUT_ROOT) -> dict[str, Any]:
                 missing_fields = [field for field in REQUIRED_PROPOSED_FIELDS if field not in payload]
                 if missing_fields:
                     issues.append(_issue("missing_metric_fields", metrics_path, ", ".join(missing_fields)))
-                if payload.get("variant") not in {PROPOSED_VARIANT, "proposed_causal_gss_codex_causal_tof"}:
+                if payload.get("variant") != PROPOSED_VARIANT:
                     issues.append(_issue("variant_mismatch", metrics_path, str(payload.get("variant"))))
                 expected_seed = int(seed_dir.name[4:])
                 if payload.get("seed") != expected_seed or payload.get("dataset") != dataset:

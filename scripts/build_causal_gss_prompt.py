@@ -2,7 +2,7 @@
 """构建生成阶段使用的 GCAD + Gen GSS prompt 产物。
 
 输入：
-    源上下文 normal Gen pkl、目标上下文 normal Gen pkl，以及可选的 causal prior。
+    源上下文 normal Gen pkl，以及可选的 source-only causal prior。
 
 输出：resolved prior JSON、causal-reweighted GSS hints 和供 Codex 生成使用的 prompt。
 """
@@ -83,8 +83,7 @@ def main(argv: list[str] | None = None) -> None:
     prior.save(out_prior)
 
     # 源序列有两重用途：一是统计 Gen 原始 GSS 转移，二是在没有外部 prior
-    # 时作为 GCAD prior 的挖掘来源。目标序列用于计算目标设备分布，在源
-    # 上下文因果边真正影响目标生成之前先做分布保护。
+    # 时作为 GCAD prior 的挖掘来源。生成阶段不读取目标行为或经验分布。
     device_mapping = load_id_name_mapping(args.device_dict, preferred_names=("sp_devices_dict", "fr_devices_dict", "us_devices_dict", "device_dict")) if args.device_dict else {}
     source_sequences = load_pickle_sequences(source_pkl)
     transition_graph = build_device_transition_graph(source_sequences, device_name_map=device_mapping)

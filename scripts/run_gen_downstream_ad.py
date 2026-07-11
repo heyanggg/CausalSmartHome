@@ -106,7 +106,7 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 
 
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
-    """推断 pre-TOF、post-Gen-TOF、post-Causal-TOF 的样本数量用于报告。"""
+    """推断 pre-TOF 与 post-Gen-TOF 的样本数量用于报告。"""
     variant = args.variant
     current_len = _pickle_len(args.generated_pkl)
     pre_tof_len = _pickle_len(args.pre_tof_pkl)
