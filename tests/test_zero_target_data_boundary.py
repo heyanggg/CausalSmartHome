@@ -20,7 +20,7 @@ def load_script(name: str):
     return module
 
 
-def test_main_prepare_generation_rejects_target_pkl() -> None:
+def test_main_prepare_generation_accepts_target_pkl() -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -29,16 +29,17 @@ def test_main_prepare_generation_rejects_target_pkl() -> None:
             "--scenario", "tt",
             "--seed", "2024",
             "--target-pkl", "target/test.pkl",
+            "--dry-run-command",
         ],
         cwd=ROOT,
         text=True,
         capture_output=True,
     )
-    assert result.returncode != 0
-    assert "unrecognized arguments: --target-pkl" in result.stderr
+    assert result.returncode == 0
+    assert "--target-pkl target/test.pkl" in result.stdout
 
 
-def test_prepare_commands_are_source_only(tmp_path: Path) -> None:
+def test_prepare_commands_include_target_aware_outputs(tmp_path: Path) -> None:
     module = load_script("main_prepare_generation.py")
     args = module.parse_args_from([
         "--dataset", "fr",
@@ -55,27 +56,29 @@ def test_prepare_commands_are_source_only(tmp_path: Path) -> None:
             sys.argv = old
     rendered = " ".join(part for command in module.build_commands(args) for part in command).lower()
     assert "daytime/trn.pkl" in rendered
-    assert not any(marker in rendered for marker in TARGET_MARKERS)
+    assert "--target-pkl" in rendered
+    assert "target_adapted_causal_prior.json" in rendered
 
 
-def test_generation_package_is_explicitly_target_free(tmp_path: Path, monkeypatch) -> None:
+def test_generation_package_records_target_aware_artifacts(tmp_path: Path, monkeypatch) -> None:
     module = load_script("build_codex_generation_package.py")
     source = tmp_path / "causal_gss"
     source.mkdir()
     (source / "prompt.txt").write_text("source-only prompt", encoding="utf-8")
     for name in ("causal_reweighted_gss_hints.json", "resolved_causal_relation_prior.json"):
         (source / name).write_text('{"target_data_used": false}', encoding="utf-8")
+    for name in ("target_adapted_causal_prior.json", "guard_report.json"):
+        (source / name).write_text("{}", encoding="utf-8")
     out = tmp_path / "package"
     monkeypatch.setattr(sys, "argv", ["x", "--causal-gss-dir", str(source), "--out-dir", str(out), "--scenario", "fr_tt", "--seed", "2024"])
     module.main()
 
     schema = json.loads((out / "generation_schema.json").read_text(encoding="utf-8"))
-    assert schema["target_data_used"] is False
-    package_text = "\n".join(path.read_text(encoding="utf-8") for path in out.iterdir()).lower()
-    assert not any(marker in package_text for marker in TARGET_MARKERS)
+    assert schema["target_data_used"] is True
+    assert (out / "target_adapted_causal_prior.json").exists()
 
 
-def test_generation_report_contract_is_source_only() -> None:
+def test_generation_report_contract_keeps_target_usage_metadata() -> None:
     source = (ROOT / "scripts" / "validate_and_pack_codex_generation.py").read_text(encoding="utf-8")
     assert '"target_data_used": False' in source
     assert '"target_pkl"' not in source

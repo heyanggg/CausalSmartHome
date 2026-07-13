@@ -1,23 +1,26 @@
-# Source-only causal relation integration with SmartGen
+# Target-aware causal relation integration with SmartGen
 
 ## Method boundary
 
-The current method adds a source-derived causal relation prior to SmartGen's
-Graph-guided Sequence Synthesis. It does not use a target empirical
-distribution and does not add a post-Gen Causal-TOF stage.
+The current method adapts a source-derived causal relation prior with the target
+normal event distribution before SmartGen's Graph-guided Sequence Synthesis,
+then applies a continuous causal-consistency stage after Gen original TOF.
 
 ```text
 source normal sequences
   -> EventTensorizer
   -> causal relation prior
+  -> C(i,j) * P_target(i) * P_target(j)
   -> source GSS transition graph
   -> causal-reweighted GSS hints
   -> Codex context adaptation
   -> Gen original TOF
+  -> Causal-TOF consistency score
   -> downstream evaluation
 ```
 
-Target normal and attack behavior are evaluation-only.
+Target normal behavior is used only for declared causal adaptation, distribution
+penalty, and evaluation. Attack behavior remains evaluation-only.
 
 ## Causal prior
 
@@ -47,24 +50,22 @@ final_score = normalized_transition * (1 + lambda_causal * normalized_causal)
 
 With `add_causal_edges=True`, a source-derived causal relation absent from
 adjacent GSS transitions may also be emitted as an augmented hint. No target
-frequency changes these scores.
+frequency changes the original transition counts; target probabilities only
+adapt causal strengths before fusion.
 
 ## Generation and filtering
 
-Codex receives source sequences/hints, legal device/action information, and the
-declared context transition. It must record `target_data_used=false`.
+Codex receives source sequences/hints, legal device/action information, the
+declared context transition, and target-adapted causal artifacts. It records
+`target_data_used=true` with the target data role.
 
 The generated JSONL is validated for flat-quadruple structure and dictionary
-legality. SmartGen's original two-stage TOF is then the only synthetic-data
-filter. The downstream evaluator loads target data only after generation and
-TOF have completed.
+legality. SmartGen's original two-stage TOF is unchanged. Causal-TOF then uses
+continuous mean causal strength rather than binary violation counting.
 
-## Removed design
+## Historical design
 
-The earlier design used target `test.pkl` or `split_test.pkl` in Target
-Distribution Guard and Causal-TOF. That changed the task into target-reference-
-assisted adaptation and risked test-distribution leakage. It was removed from
-the current tree on 2026-07-11 and remains recoverable from:
+The zero-target redesign from 2026-07-11 remains recoverable from:
 
 ```text
 archive-before-target-guard-redesign-20260711

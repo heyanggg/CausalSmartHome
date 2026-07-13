@@ -19,6 +19,7 @@ from causal_smart_home.experiment_paths import (  # noqa: E402
     experiment_key,
     source_pkl_for,
     stage_paths,
+    target_pkl_for,
 )
 from causal_smart_home.gen_downstream_ad import DATASETS, ENV_BY_SCENARIO  # noqa: E402
 
@@ -30,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--out-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--source-pkl", type=Path)
+    parser.add_argument("--target-pkl", type=Path)
     parser.add_argument("--device-dict", type=Path, default=DICTIONARY_PY)
     parser.add_argument("--prior-json")
     parser.add_argument("--prior-matrix-path")
@@ -41,6 +43,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reweight-mode", choices=["additive", "multiplicative"], default="multiplicative")
     parser.add_argument("--no-add-causal-edges", action="store_true")
     parser.add_argument("--top-k", type=int, default=50)
+    parser.add_argument("--guard-mode", choices=["suppress", "downweight"], default="downweight")
+    parser.add_argument("--max-overuse-ratio", type=float, default=1.25)
+    parser.add_argument("--min-target-freq", type=float, default=0.001)
+    parser.add_argument("--downweight-factor", type=float, default=0.25)
+    parser.add_argument("--endpoint-policy", choices=["target", "source_or_target", "both"], default="target")
     parser.add_argument("--dry-run-command", action="store_true", help="Print resolved commands without executing them.")
     return parser.parse_args()
 
@@ -50,18 +57,25 @@ def build_commands(args: argparse.Namespace) -> list[list[str]]:
     causal_gss_dir = paths.causal_gss_dir
     package_dir = paths.generation_package_dir
     source_pkl = args.source_pkl or source_pkl_for(args.dataset, args.scenario)
+    target_pkl = args.target_pkl or target_pkl_for(args.dataset, args.scenario)
 
     prompt_cmd = [
         sys.executable,
         "scripts/build_causal_gss_prompt.py",
         "--source-pkl",
         str(source_pkl),
+        "--target-pkl",
+        str(target_pkl),
         "--device-dict",
         str(args.device_dict),
         "--out-prompt",
         str(causal_gss_dir / "prompt.txt"),
         "--out-prior-json",
         str(causal_gss_dir / "resolved_causal_relation_prior.json"),
+        "--out-target-adapted-prior",
+        str(causal_gss_dir / "target_adapted_causal_prior.json"),
+        "--out-guard-report",
+        str(causal_gss_dir / "guard_report.json"),
         "--out-reweighted-hints",
         str(causal_gss_dir / "causal_reweighted_gss_hints.json"),
         "--out-config",
@@ -82,6 +96,16 @@ def build_commands(args: argparse.Namespace) -> list[list[str]]:
         args.reweight_mode,
         "--top-k",
         str(args.top_k),
+        "--guard-mode",
+        args.guard_mode,
+        "--max-overuse-ratio",
+        str(args.max_overuse_ratio),
+        "--min-target-freq",
+        str(args.min_target_freq),
+        "--downweight-factor",
+        str(args.downweight_factor),
+        "--endpoint-policy",
+        args.endpoint_policy,
     ]
     if args.prior_json:
         prompt_cmd.extend(["--prior-json", args.prior_json])

@@ -43,6 +43,13 @@ def main() -> None:
             raise FileNotFoundError(f"required causal GSS artifact missing: {src}")
         shutil.copyfile(src, out_dir / name)
 
+    optional = ["target_adapted_causal_prior.json", "guard_report.json"]
+    for name in optional:
+        src = causal_gss_dir / name
+        if src.exists():
+            shutil.copyfile(src, out_dir / name)
+    target_aware = (causal_gss_dir / "target_adapted_causal_prior.json").exists()
+
     schema = {
         "generator": "codex_generation",
         "generation_model": "Codex",
@@ -52,7 +59,8 @@ def main() -> None:
         "sequence_format": "flat_quadruples",
         "fields": ["day", "hour_slot", "device_id", "action_id"],
         "causal_gss_dir": str(causal_gss_dir),
-        "target_data_used": False,
+        "target_data_used": target_aware,
+        "target_data_role": "target_normal_distribution_for_causal_adaptation" if target_aware else None,
         "reweight_mode": "multiplicative",
         "lambda_causal": 1.0,
     }
@@ -79,6 +87,8 @@ def build_instruction(scenario: str) -> str:
             "1. prompt.txt",
             "2. causal_reweighted_gss_hints.json",
             "3. resolved_causal_relation_prior.json",
+            "4. target_adapted_causal_prior.json",
+            "5. guard_report.json",
             "",
             "Generate target-context normal smart-home behavior sequences.",
             "",
@@ -94,7 +104,7 @@ def build_instruction(scenario: str) -> str:
             "2. Use raw causal relation hints only as weak background.",
             "3. If raw causal relation conflicts with reweighted hints, follow reweighted hints.",
             f"4. {scenario_note}",
-            "5. Use only the declared context transition; no target behavior samples are available.",
+            "5. Use the target-adapted prior already supplied by the experiment pipeline.",
             "6. Do not generate device/action IDs outside known dictionaries.",
             "7. Preserve reasonable temporal order.",
             "8. Generate normal behavior sequences, not attacks.",

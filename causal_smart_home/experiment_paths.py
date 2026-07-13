@@ -6,10 +6,17 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .gen_downstream_ad import ENV_BY_SCENARIO, SCENARIO_BY_ENV, SOURCE_ENV_BY_TARGET_ENV, env_for_scenario
+from .gen_downstream_ad import (
+    DEFAULT_THRESHOLDS,
+    ENV_BY_SCENARIO,
+    SCENARIO_BY_ENV,
+    SOURCE_ENV_BY_TARGET_ENV,
+    env_for_scenario,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,8 +31,32 @@ REFERENCE_ROOT = PROJECT_ROOT / "data" / "reference_gen"
 DICTIONARY_PY = DATA_ROOT / "dictionary.py"
 
 
-PROPOSED_VARIANT = "proposed_zero_target_causal_gss_codex"
-VARIANTS = {PROPOSED_VARIANT}
+BASELINE_GEN_VARIANT = "baseline_gen"
+CAUSAL_GSS_ONLY_VARIANT = "causal_gss_only"
+CAUSAL_TOF_ONLY_VARIANT = "causal_tof_only"
+FULL_CAUSAL_VARIANT = "full_causal"
+PROPOSED_VARIANT = FULL_CAUSAL_VARIANT
+
+# Historical names remain callable so old run commands and artifact readers do
+# not break. New summaries only select the four canonical ablation names.
+LEGACY_VARIANT_ALIASES = {
+    "ablation_no_causal_tof": CAUSAL_GSS_ONLY_VARIANT,
+    "proposed_causal_gss_codex_causal_tof": FULL_CAUSAL_VARIANT,
+    "proposed_zero_target_causal_gss_codex": CAUSAL_GSS_ONLY_VARIANT,
+}
+CANONICAL_VARIANTS = {
+    BASELINE_GEN_VARIANT,
+    CAUSAL_GSS_ONLY_VARIANT,
+    CAUSAL_TOF_ONLY_VARIANT,
+    FULL_CAUSAL_VARIANT,
+}
+VARIANTS = CANONICAL_VARIANTS | set(LEGACY_VARIANT_ALIASES)
+
+TARGET_PKL_NAME_BY_DATASET_ENV = {
+    ("fr", "spring"): "split_test.pkl",
+    ("fr", "night"): "split_test.pkl",
+    ("sp", "spring"): "split_test.pkl",
+}
 
 
 @dataclass(frozen=True)
@@ -54,8 +85,25 @@ class StagePaths:
         return self.seed_dir / "gen_original_tof" / "gen_tof.pkl"
 
     @property
+    def causal_tof_dir(self) -> Path:
+        return self.seed_dir / "causal_tof"
+
+    @property
+    def causal_tof_pkl(self) -> Path:
+        return self.causal_tof_dir / "generated_gen_tof_causal_tof.pkl"
+
+    @property
+    def causal_tof_only_pkl(self) -> Path:
+        return self.causal_tof_dir / "baseline_gen_causal_tof.pkl"
+
+    @property
     def causal_reweighted_hints_json(self) -> Path:
         return self.seed_dir / "causal_gss" / "causal_reweighted_gss_hints.json"
+
+    @property
+    def guarded_hints_json(self) -> Path:
+        historical = self.seed_dir / "causal_gss" / "guarded_reweighted_gss_hints.json"
+        return historical if historical.exists() else self.causal_reweighted_hints_json
 
     @property
     def causal_gss_dir(self) -> Path:
@@ -99,15 +147,65 @@ def source_pkl_for(dataset: str, scenario: str) -> Path:
     return DATA_ROOT / dataset / source_env / "trn.pkl"
 
 
+def target_pkl_for(dataset: str, scenario: str) -> Path:
+    """Return the accepted target-normal reference used by adaptation/evaluation."""
+    env = env_for_scenario(scenario)
+    filename = TARGET_PKL_NAME_BY_DATASET_ENV.get((dataset, env), "test.pkl")
+    return DATA_ROOT / dataset / env / filename
+
+
+def target_pkl_from_stage_config(paths: StagePaths) -> Path | None:
+    if not paths.causal_gss_config.exists():
+        return None
+    try:
+        payload = json.loads(paths.causal_gss_config.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    target = payload.get("target_pkl")
+    if not target:
+        return None
+    path = Path(target)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def baseline_gen_pkl_for(dataset: str, scenario: str) -> Path:
+    """Return SmartGen's accepted post-TOF synthetic input for one cell."""
+    env = env_for_scenario(scenario)
+    threshold = DEFAULT_THRESHOLDS[(dataset, env)]
+    return (
+        GEN_ROOT
+        / "anomaly_detection_pipeline"
+        / "synthetic_data"
+        / f"{dataset}_{env}_generation_SPPC_th={threshold}_gpt-4o_seq_filter_true.pkl"
+    )
+
+
 def default_downstream_out_dir(root: str | Path, dataset: str, scenario: str, seed: int, variant: str) -> Path:
     """返回实验级 main 默认写下游 AD 结果的位置。"""
     return Path(root) / experiment_key(dataset, scenario) / f"seed{seed}" / "downstream_ad" / variant
 
 
+def default_causal_tof_dir(root: str | Path, dataset: str, scenario: str, seed: int) -> Path:
+    return Path(root) / experiment_key(dataset, scenario) / f"seed{seed}" / "causal_tof"
+
+
+def canonical_variant(variant: str) -> str:
+    return LEGACY_VARIANT_ALIASES.get(variant, variant)
+
+
 def input_for_variant(paths: StagePaths, variant: str) -> tuple[Path, Path | None, Path | None]:
     """根据 variant 推断下游 AD 的 generated/pre_tof/gen_tof 参数。"""
-    if variant == PROPOSED_VARIANT:
+    canonical = canonical_variant(variant)
+    if canonical == BASELINE_GEN_VARIANT:
+        baseline = baseline_gen_pkl_for(paths.dataset, paths.scenario)
+        return baseline, None, baseline
+    if canonical == CAUSAL_GSS_ONLY_VARIANT:
         return paths.gen_tof_pkl, paths.pre_tof_pkl if paths.pre_tof_pkl.exists() else None, paths.gen_tof_pkl
+    if canonical == CAUSAL_TOF_ONLY_VARIANT:
+        baseline = baseline_gen_pkl_for(paths.dataset, paths.scenario)
+        return paths.causal_tof_only_pkl, baseline, baseline
+    if canonical == FULL_CAUSAL_VARIANT:
+        return paths.causal_tof_pkl, paths.pre_tof_pkl if paths.pre_tof_pkl.exists() else None, paths.gen_tof_pkl
     raise ValueError(f"unknown variant: {variant}")
 
 

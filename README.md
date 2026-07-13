@@ -1,5 +1,123 @@
 # CausalSmartHome
 
+## Paper experiment protocol (2026-07-14)
+
+The maintained paper pipeline is target-aware and keeps SmartGen's Gen TOF and
+downstream anomaly-detection protocols unchanged:
+
+```text
+SmartGen
+-> gradient causal relation discovery
+-> target-aware causal-prior adaptation
+-> causal GSS
+-> Codex generation
+-> Gen original TOF (unchanged)
+-> Causal-TOF consistency refinement
+-> Gen downstream AD (unchanged)
+```
+
+The causal implementation is organized under:
+
+```text
+causal_smart_home/causal/
+  discovery/gradient_gc.py
+  adaptation/target_guard.py
+  generation/causal_gss.py
+  refinement/causal_tof.py
+  evaluation/causal_metrics.py
+  evaluation/generation_quality.py
+```
+
+Historical imports such as `causal_smart_home.causal_prior`,
+`causal_smart_home.target_distribution_guard`, and
+`causal_smart_home.causal_tof` remain supported.
+
+Target normal behavior supplies an event-level device distribution. Each source
+causal edge is adapted before GSS fusion:
+
+```text
+C_target(i,j) = C_source(i,j) * P_target(i) * P_target(j)
+```
+
+Each seed writes `target_adapted_causal_prior.json`, including before/after edge
+statistics. Causal-TOF reports `causal_consistency_score`, the mean normalized
+causal strength over ordered event pairs. Its higher-is-better utility is:
+
+```text
+final_score = alpha * reconstruction_loss
+              - beta * causal_inconsistency
+              - gamma * distribution_penalty
+```
+
+Gen's original TOF logic is not modified. Its current wrapper does not expose
+per-sequence reconstruction losses, so that term is zero unless a separate
+audited loss vector is explicitly supplied to Causal-TOF.
+
+The four canonical ablation variants are:
+
+| variant | causal GSS | Causal-TOF |
+| --- | --- | --- |
+| `baseline_gen` | no | no |
+| `causal_gss_only` | yes | no |
+| `causal_tof_only` | no | yes |
+| `full_causal` | yes | yes |
+
+All variants support FR/SP/US × ST/TT/NT. Results are stored per seed and are
+never averaged by the summary scripts. Generation quality includes
+`KL(target || synthetic)`, transition-matrix cosine similarity, and causal-graph
+cosine similarity. Each variant also saves target/synthetic transition and
+causal matrices in `case_study_matrices.json`.
+
+Run checks first, then exactly one cell:
+
+```bash
+PY=/home/heyang/miniconda3/envs/smartguard_env/bin/python
+$PY -m pytest -q
+
+# Build target-aware causal GSS artifacts for SP-ST seed2024. Existing accepted
+# Codex/Gen outputs may then be reused without overwriting historical results.
+$PY scripts/main_prepare_generation.py \
+  --dataset sp --scenario st --seed 2024 \
+  --prior-json data/main_experiment/sp_st/seed2024/causal_gss/resolved_causal_relation_prior.json \
+  --out-root outputs/main_runs
+
+# Run only SP-ST seed2024, all four variants.
+CUDA_VISIBLE_DEVICES=0 $PY scripts/main_run_ablation.py \
+  --dataset sp --scenario st --seed 2024 \
+  --input-root data/main_experiment \
+  --out-root outputs/main_runs \
+  --guarded-hints-json outputs/main_runs/sp_st/seed2024/causal_gss/causal_reweighted_gss_hints.json \
+  --device cuda --cuda-visible-devices 0
+```
+
+Only after this cell's AD and generation-quality metrics are checked should the
+same command be expanded to the remaining eight cells. New artifacts go under
+`outputs/main_runs/`; existing `data/main_experiment/` results are read-only.
+
+### SP-ST seed2024 validation result
+
+The staged validation was executed on GPU 0 (RTX 3090) with the unchanged Gen
+downstream AD protocol and 15 epochs. No other cell was run.
+
+| variant | Precision | Recall | F1 | FPR |
+| --- | ---: | ---: | ---: | ---: |
+| `baseline_gen` | 0.858491 | 1.000000 | 0.923858 | 0.164835 |
+| `causal_gss_only` | 0.588997 | 1.000000 | 0.741344 | 0.697802 |
+| `causal_tof_only` | 0.824462 | 1.000000 | 0.903786 | 0.212912 |
+| `full_causal` | 0.919192 | 1.000000 | 0.957895 | 0.087912 |
+
+| variant | device KL ↓ | transition similarity ↑ | causal similarity ↑ |
+| --- | ---: | ---: | ---: |
+| `baseline_gen` | 1.183431 | 0.127651 | 0.133739 |
+| `causal_gss_only` | 0.639495 | 0.748733 | 0.541435 |
+| `causal_tof_only` | 1.175672 | 0.108294 | 0.135861 |
+| `full_causal` | 0.566248 | 0.665461 | 0.453825 |
+
+Mean causal consistency was `0.055326` for `causal_tof_only` and `0.111610`
+for `full_causal`. The full method improves AD F1 and FPR over Gen while also
+having the lowest device-distribution KL. The component-only results show that
+the gain is not a trivial consequence of either causal component in isolation.
+
 ## Required runtime
 
 The repository root and the only supported Python interpreter for formal runs are:
@@ -24,7 +142,7 @@ runs must use `CUDA_VISIBLE_DEVICES=0`, and their result metadata must record
 results. Do not use system Python, `/home/anaconda3/bin/python`, or another
 Conda environment.
 
-## Scope
+## Historical zero-target protocol
 
 CausalSmartHome is a zero-target-data extension of SmartGen. The method adapts
 from an original smart-home context to a declared new context without reading

@@ -30,13 +30,20 @@ from causal_smart_home.gen_downstream_ad import (
     load_pickle,
     run_gen_downstream_ad_experiment,
 )
-from causal_smart_home.experiment_paths import GEN_ROOT
+from causal_smart_home.experiment_paths import (
+    BASELINE_GEN_VARIANT,
+    CANONICAL_VARIANTS,
+    CAUSAL_GSS_ONLY_VARIANT,
+    CAUSAL_TOF_ONLY_VARIANT,
+    FULL_CAUSAL_VARIANT,
+    GEN_ROOT,
+    LEGACY_VARIANT_ALIASES,
+    canonical_variant,
+)
 from causal_smart_home.json_utils import jsonable
 
-PROPOSED_VARIANT = "proposed_zero_target_causal_gss_codex"
-VARIANTS = {
-    PROPOSED_VARIANT,
-}
+PROPOSED_VARIANT = FULL_CAUSAL_VARIANT
+VARIANTS = CANONICAL_VARIANTS | set(LEGACY_VARIANT_ALIASES)
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,7 +114,7 @@ def _read_tof_report(path: Path | None) -> dict[str, Any]:
 
 def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
     """推断 pre-TOF 与 post-Gen-TOF 的样本数量用于报告。"""
-    variant = args.variant
+    variant = canonical_variant(args.variant)
     current_len = _pickle_len(args.generated_pkl)
     pre_tof_len = _pickle_len(args.pre_tof_pkl)
     gen_tof_len = _pickle_len(args.gen_tof_pkl)
@@ -115,16 +122,24 @@ def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
 
     before = pre_tof_len
     after_gen = gen_tof_len
-    if variant == PROPOSED_VARIANT:
+    after_causal = None
+    if variant in {BASELINE_GEN_VARIANT, CAUSAL_GSS_ONLY_VARIANT}:
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_gen = current_len
+    elif variant in {CAUSAL_TOF_ONLY_VARIANT, FULL_CAUSAL_VARIANT}:
+        before = before if before is not None else tof_report.get("num_generated_before_tof")
+        after_gen = after_gen if after_gen is not None else tof_report.get("num_generated_after_gen_tof")
+        after_causal = current_len
 
     return {
         "input_pkl": str(args.generated_pkl.resolve()),
         "input_stage": input_stage_for_variant(variant),
         "used_gen_original_tof": used_gen_original_tof_for_variant(variant),
+        "used_causal_gss": used_causal_gss_for_variant(variant),
+        "used_causal_tof": used_causal_tof_for_variant(variant),
         "num_generated_before_tof": before,
         "num_generated_after_gen_tof": after_gen,
+        "num_generated_after_causal_tof": after_causal,
     }
 
 
@@ -134,7 +149,7 @@ def f1(payload: dict[str, Any]) -> float | None:
 
 
 def generator_for_variant(variant: str) -> str:
-    return "codex_generation"
+    return "smartgen" if canonical_variant(variant) in {BASELINE_GEN_VARIANT, CAUSAL_TOF_ONLY_VARIANT} else "codex_generation"
 
 
 def read_generation_provenance(path: Path | None) -> dict[str, Any]:
@@ -164,18 +179,33 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
 
 
 def input_stage_for_variant(variant: str) -> str:
-    if variant == PROPOSED_VARIANT:
-        return "gen_original_tof"
-    return variant
+    canonical = canonical_variant(variant)
+    if canonical == BASELINE_GEN_VARIANT:
+        return "smartgen_gen_original_tof"
+    if canonical == CAUSAL_GSS_ONLY_VARIANT:
+        return "causal_gss_plus_gen_original_tof"
+    if canonical == CAUSAL_TOF_ONLY_VARIANT:
+        return "smartgen_gen_original_tof_plus_causal_tof"
+    if canonical == FULL_CAUSAL_VARIANT:
+        return "causal_gss_plus_gen_original_tof_plus_causal_tof"
+    return canonical
 
 
 def used_gen_original_tof_for_variant(variant: str) -> bool:
-    return variant == PROPOSED_VARIANT
+    return canonical_variant(variant) in CANONICAL_VARIANTS
+
+
+def used_causal_gss_for_variant(variant: str) -> bool:
+    return canonical_variant(variant) in {CAUSAL_GSS_ONLY_VARIANT, FULL_CAUSAL_VARIANT}
+
+
+def used_causal_tof_for_variant(variant: str) -> bool:
+    return canonical_variant(variant) in {CAUSAL_TOF_ONLY_VARIANT, FULL_CAUSAL_VARIANT}
 
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     """把 raw Gen AD payload 展平为汇总脚本使用的 per-seed schema。"""
-    variant = args.variant
+    variant = canonical_variant(args.variant)
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
     threshold_percentage = (
         args.threshold_percentage
@@ -191,8 +221,8 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "gen_env": gen_env(args.scenario),
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "generator": provenance.get("generator", generator_for_variant(variant)),
-        "generation_model": provenance.get("generation_model", "Codex"),
-        "manual_generation": provenance.get("manual_generation", True),
+        "generation_model": provenance.get("generation_model", "SmartGen" if variant in {BASELINE_GEN_VARIANT, CAUSAL_TOF_ONLY_VARIANT} else "Codex"),
+        "manual_generation": provenance.get("manual_generation", variant not in {BASELINE_GEN_VARIANT, CAUSAL_TOF_ONLY_VARIANT}),
         "precision": payload.get("precision"),
         "recall": payload.get("recall"),
         "f1": f1(payload),
@@ -242,11 +272,14 @@ PER_SEED_FIELDS = [
     "input_pkl",
     "input_stage",
     "used_gen_original_tof",
+    "used_causal_gss",
+    "used_causal_tof",
     "downstream_pipeline",
     "generator",
     "generation_model",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
+    "num_generated_after_causal_tof",
     "train_size",
     "validation_size",
     "test_size",
@@ -342,7 +375,7 @@ def main() -> None:
     (out_dir / "input_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     provenance = read_generation_provenance(args.pre_tof_pkl or args.generated_pkl)
-    variant = args.variant
+    variant = canonical_variant(args.variant)
     config_payload = {
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "gen_entrypoint": str((args.gen_root / "anomaly_detection_pipeline" / "models1.py").resolve()),
@@ -351,6 +384,8 @@ def main() -> None:
         "manual_generation": provenance.get("manual_generation", True),
         "input_stage": input_stage_for_variant(variant),
         "used_gen_original_tof": used_gen_original_tof_for_variant(variant),
+        "used_causal_gss": used_causal_gss_for_variant(variant),
+        "used_causal_tof": used_causal_tof_for_variant(variant),
         "epochs": args.epochs,
         "split_ratio": args.split_ratio,
         "device": args.device,

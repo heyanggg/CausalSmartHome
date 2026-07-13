@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
     parser.add_argument("--scenario", required=True, choices=sorted(ENV_BY_SCENARIO))
     parser.add_argument("--seed", required=True, type=int)
-    parser.add_argument("--variant", choices=sorted(VARIANTS), default="proposed_zero_target_causal_gss_codex")
+    parser.add_argument("--variant", choices=sorted(VARIANTS), default="full_causal")
     parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     parser.add_argument("--out-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--generated-pkl", type=Path, help="Override the inferred AD input pkl.")

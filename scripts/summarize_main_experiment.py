@@ -26,11 +26,14 @@ PER_SEED_FIELDS = [
     "input_pkl",
     "input_stage",
     "used_gen_original_tof",
+    "used_causal_gss",
+    "used_causal_tof",
     "downstream_pipeline",
     "generator",
     "generation_model",
     "num_generated_before_tof",
     "num_generated_after_gen_tof",
+    "num_generated_after_causal_tof",
     "train_size",
     "validation_size",
     "test_size",
@@ -50,7 +53,10 @@ PER_SEED_FIELDS = [
 METRIC_FIELDS = ["precision", "recall", "f1", "accuracy", "fpr", "fnr"]
 
 KEPT_VARIANTS = {
-    "proposed_zero_target_causal_gss_codex",
+    "baseline_gen",
+    "causal_gss_only",
+    "causal_tof_only",
+    "full_causal",
 }
 
 
@@ -115,6 +121,8 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
         row["input_pkl"] = payload.get("synthetic_pkl", "")
     for key in [
         "used_gen_original_tof",
+        "used_causal_gss",
+        "used_causal_tof",
     ]:
         value = row.get(key)
         if isinstance(value, str):
@@ -124,6 +132,7 @@ def normalize_metric_row(payload: dict[str, Any], metrics_path: Path) -> dict[st
     for key in [
         "num_generated_before_tof",
         "num_generated_after_gen_tof",
+        "num_generated_after_causal_tof",
         "train_size",
         "validation_size",
         "test_size",
@@ -190,6 +199,31 @@ def write_outputs(out_dir: Path, per_seed_rows: list[dict[str, Any]]) -> None:
         PER_SEED_FIELDS,
         note="Each row is one seed. This is the primary results table; do not replace it with mean/std or delta tables.",
     )
+    comparisons = build_ablation_comparisons(per_seed_rows)
+    (out_dir / "ablation_summary.json").write_text(
+        json.dumps(jsonable(comparisons), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    comparison_fields = ["dataset", "scenario", "seed"] + [f"{variant}_f1" for variant in sorted(KEPT_VARIANTS)]
+    write_csv(out_dir / "ablation_summary.csv", comparisons, comparison_fields)
+    write_markdown_table(
+        out_dir / "ablation_summary.md",
+        "Four-Variant Ablation Per-Seed Summary",
+        comparisons,
+        comparison_fields,
+        note="No seed averaging is performed; each row is one dataset/scenario/seed coordinate.",
+    )
+
+
+def build_ablation_comparisons(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, int], dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row.get("dataset")), str(row.get("scenario")), int(row.get("seed") or -1))
+        comparison = grouped.setdefault(
+            key,
+            {"dataset": key[0], "scenario": key[1], "seed": key[2]},
+        )
+        comparison[f"{row.get('variant')}_f1"] = row.get("f1")
+    return [grouped[key] for key in sorted(grouped)]
 
 
 def main() -> None:
