@@ -65,11 +65,11 @@ def main() -> None:
         "lambda_causal": 1.0,
     }
     (out_dir / "generation_schema.json").write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "generation_instruction.md").write_text(build_instruction(args.scenario), encoding="utf-8")
+    (out_dir / "generation_instruction.md").write_text(build_instruction(args.scenario, target_aware=target_aware), encoding="utf-8")
     print(f"saved Codex generation package: {out_dir}")
 
 
-def build_instruction(scenario: str) -> str:
+def build_instruction(scenario: str, target_aware: bool = False) -> str:
     """为单个场景 package 写出面向人工/Codex 的生成协议说明。"""
     suffix = scenario.rsplit("_", 1)[-1]
     scenario_note = {
@@ -77,6 +77,13 @@ def build_instruction(scenario: str) -> str:
         "tt": "Adapt from daytime activity to nighttime activity using the declared schedule change.",
         "nt": "Adapt from single occupancy to multiple occupancy using the declared household change.",
     }.get(suffix, f"Adapt behavior to the declared {scenario} context transition.")
+    inputs = [
+        "1. prompt.txt",
+        "2. causal_reweighted_gss_hints.json",
+        "3. resolved_causal_relation_prior.json",
+    ]
+    if target_aware:
+        inputs.extend(["4. target_adapted_causal_prior.json", "5. guard_report.json"])
     return "\n".join(
         [
             "# Codex Generation Instruction",
@@ -84,11 +91,7 @@ def build_instruction(scenario: str) -> str:
             "Use Codex as the target-context behavior generator for this project.",
             "",
             "Use:",
-            "1. prompt.txt",
-            "2. causal_reweighted_gss_hints.json",
-            "3. resolved_causal_relation_prior.json",
-            "4. target_adapted_causal_prior.json",
-            "5. guard_report.json",
+            *inputs,
             "",
             "Generate target-context normal smart-home behavior sequences.",
             "",
@@ -104,7 +107,11 @@ def build_instruction(scenario: str) -> str:
             "2. Use raw causal relation hints only as weak background.",
             "3. If raw causal relation conflicts with reweighted hints, follow reweighted hints.",
             f"4. {scenario_note}",
-            "5. Use the target-adapted prior already supplied by the experiment pipeline.",
+            (
+                "5. Use the target-adapted prior already supplied by the experiment pipeline."
+                if target_aware
+                else "5. Use source-derived evidence only; target empirical behavior is unavailable."
+            ),
             "6. Do not generate device/action IDs outside known dictionaries.",
             "7. Preserve reasonable temporal order.",
             "8. Generate normal behavior sequences, not attacks.",

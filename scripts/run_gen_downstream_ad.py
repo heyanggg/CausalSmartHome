@@ -38,12 +38,18 @@ from causal_smart_home.experiment_paths import (
     FULL_CAUSAL_VARIANT,
     GEN_ROOT,
     LEGACY_VARIANT_ALIASES,
+    TARGET_ASSISTED_FULL_VARIANT,
+    ZERO_TARGET_BASELINE_VARIANT,
+    ZERO_TARGET_CAUSAL_GSS_VARIANT,
+    ZERO_TARGET_CAUSAL_TOF_VARIANT,
+    ZERO_TARGET_FULL_VARIANT,
+    VARIANTS as EXPERIMENT_VARIANTS,
     canonical_variant,
 )
 from causal_smart_home.json_utils import jsonable
 
-PROPOSED_VARIANT = FULL_CAUSAL_VARIANT
-VARIANTS = CANONICAL_VARIANTS | set(LEGACY_VARIANT_ALIASES)
+PROPOSED_VARIANT = ZERO_TARGET_FULL_VARIANT
+VARIANTS = EXPERIMENT_VARIANTS
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,10 +129,21 @@ def generated_counts(args: argparse.Namespace) -> dict[str, Any]:
     before = pre_tof_len
     after_gen = gen_tof_len
     after_causal = None
-    if variant in {BASELINE_GEN_VARIANT, CAUSAL_GSS_ONLY_VARIANT}:
+    if variant in {
+        BASELINE_GEN_VARIANT,
+        CAUSAL_GSS_ONLY_VARIANT,
+        ZERO_TARGET_BASELINE_VARIANT,
+        ZERO_TARGET_CAUSAL_GSS_VARIANT,
+    }:
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_gen = current_len
-    elif variant in {CAUSAL_TOF_ONLY_VARIANT, FULL_CAUSAL_VARIANT}:
+    elif variant in {
+        CAUSAL_TOF_ONLY_VARIANT,
+        FULL_CAUSAL_VARIANT,
+        ZERO_TARGET_CAUSAL_TOF_VARIANT,
+        ZERO_TARGET_FULL_VARIANT,
+        TARGET_ASSISTED_FULL_VARIANT,
+    }:
         before = before if before is not None else tof_report.get("num_generated_before_tof")
         after_gen = after_gen if after_gen is not None else tof_report.get("num_generated_after_gen_tof")
         after_causal = current_len
@@ -149,7 +166,7 @@ def f1(payload: dict[str, Any]) -> float | None:
 
 
 def generator_for_variant(variant: str) -> str:
-    return "smartgen" if canonical_variant(variant) in {BASELINE_GEN_VARIANT, CAUSAL_TOF_ONLY_VARIANT} else "codex_generation"
+    return "source_distribution_driven_codex"
 
 
 def read_generation_provenance(path: Path | None) -> dict[str, Any]:
@@ -180,6 +197,16 @@ def read_generation_provenance(path: Path | None) -> dict[str, Any]:
 
 def input_stage_for_variant(variant: str) -> str:
     canonical = canonical_variant(variant)
+    if canonical == ZERO_TARGET_BASELINE_VARIANT:
+        return "source_only_generation_plus_gen_original_tof"
+    if canonical == ZERO_TARGET_CAUSAL_GSS_VARIANT:
+        return "source_only_causal_gss_plus_gen_original_tof"
+    if canonical == ZERO_TARGET_CAUSAL_TOF_VARIANT:
+        return "source_only_generation_plus_gen_original_tof_plus_source_causal_tof"
+    if canonical == ZERO_TARGET_FULL_VARIANT:
+        return "source_only_causal_gss_plus_gen_original_tof_plus_source_causal_tof"
+    if canonical == TARGET_ASSISTED_FULL_VARIANT:
+        return "target_assisted_causal_gss_plus_gen_original_tof_plus_target_assisted_causal_tof"
     if canonical == BASELINE_GEN_VARIANT:
         return "smartgen_gen_original_tof"
     if canonical == CAUSAL_GSS_ONLY_VARIANT:
@@ -196,11 +223,23 @@ def used_gen_original_tof_for_variant(variant: str) -> bool:
 
 
 def used_causal_gss_for_variant(variant: str) -> bool:
-    return canonical_variant(variant) in {CAUSAL_GSS_ONLY_VARIANT, FULL_CAUSAL_VARIANT}
+    return canonical_variant(variant) in {
+        CAUSAL_GSS_ONLY_VARIANT,
+        FULL_CAUSAL_VARIANT,
+        ZERO_TARGET_CAUSAL_GSS_VARIANT,
+        ZERO_TARGET_FULL_VARIANT,
+        TARGET_ASSISTED_FULL_VARIANT,
+    }
 
 
 def used_causal_tof_for_variant(variant: str) -> bool:
-    return canonical_variant(variant) in {CAUSAL_TOF_ONLY_VARIANT, FULL_CAUSAL_VARIANT}
+    return canonical_variant(variant) in {
+        CAUSAL_TOF_ONLY_VARIANT,
+        FULL_CAUSAL_VARIANT,
+        ZERO_TARGET_CAUSAL_TOF_VARIANT,
+        ZERO_TARGET_FULL_VARIANT,
+        TARGET_ASSISTED_FULL_VARIANT,
+    }
 
 
 def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
@@ -221,8 +260,8 @@ def normalize_metrics(payload: dict[str, Any], args: argparse.Namespace) -> dict
         "gen_env": gen_env(args.scenario),
         "downstream_pipeline": "gen_builtin_downstream_ad",
         "generator": provenance.get("generator", generator_for_variant(variant)),
-        "generation_model": provenance.get("generation_model", "SmartGen" if variant in {BASELINE_GEN_VARIANT, CAUSAL_TOF_ONLY_VARIANT} else "Codex"),
-        "manual_generation": provenance.get("manual_generation", variant not in {BASELINE_GEN_VARIANT, CAUSAL_TOF_ONLY_VARIANT}),
+        "generation_model": provenance.get("generation_model", "Codex"),
+        "manual_generation": provenance.get("manual_generation", True),
         "precision": payload.get("precision"),
         "recall": payload.get("recall"),
         "f1": f1(payload),

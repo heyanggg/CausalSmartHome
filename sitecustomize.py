@@ -40,3 +40,13 @@ try:
             pass
 except Exception:
     pass
+
+try:
+    from causal_smart_home.data_lineage import install_from_environment as _install_lineage
+
+    _CSH_DATA_LINEAGE_RECORDER = _install_lineage()
+except Exception as _lineage_error:
+    # Never hide an explicitly requested lineage setup failure. Without an
+    # active recorder, a zero-target run would not be auditable.
+    if __import__("os").environ.get("CSH_LINEAGE_OUT"):
+        raise

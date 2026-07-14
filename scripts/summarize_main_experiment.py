@@ -57,6 +57,11 @@ KEPT_VARIANTS = {
     "causal_gss_only",
     "causal_tof_only",
     "full_causal",
+    "zero_target_baseline",
+    "zero_target_causal_gss",
+    "zero_target_causal_tof",
+    "zero_target_full",
+    "target_assisted_full",
 }
 
 

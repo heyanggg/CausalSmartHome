@@ -15,6 +15,7 @@ from .gen_downstream_ad import (
     ENV_BY_SCENARIO,
     SCENARIO_BY_ENV,
     SOURCE_ENV_BY_TARGET_ENV,
+    default_gen_paths,
     env_for_scenario,
 )
 
@@ -31,26 +32,39 @@ REFERENCE_ROOT = PROJECT_ROOT / "data" / "reference_gen"
 DICTIONARY_PY = DATA_ROOT / "dictionary.py"
 
 
+ZERO_TARGET_BASELINE_VARIANT = "zero_target_baseline"
+ZERO_TARGET_CAUSAL_GSS_VARIANT = "zero_target_causal_gss"
+ZERO_TARGET_CAUSAL_TOF_VARIANT = "zero_target_causal_tof"
+ZERO_TARGET_FULL_VARIANT = "zero_target_full"
+TARGET_ASSISTED_FULL_VARIANT = "target_assisted_full"
+
+# Compatibility names for the previously published target-assisted ablation.
 BASELINE_GEN_VARIANT = "baseline_gen"
 CAUSAL_GSS_ONLY_VARIANT = "causal_gss_only"
 CAUSAL_TOF_ONLY_VARIANT = "causal_tof_only"
 FULL_CAUSAL_VARIANT = "full_causal"
-PROPOSED_VARIANT = FULL_CAUSAL_VARIANT
+PROPOSED_VARIANT = ZERO_TARGET_FULL_VARIANT
 
 # Historical names remain callable so old run commands and artifact readers do
 # not break. New summaries only select the four canonical ablation names.
 LEGACY_VARIANT_ALIASES = {
     "ablation_no_causal_tof": CAUSAL_GSS_ONLY_VARIANT,
-    "proposed_causal_gss_codex_causal_tof": FULL_CAUSAL_VARIANT,
     "proposed_zero_target_causal_gss_codex": CAUSAL_GSS_ONLY_VARIANT,
+    FULL_CAUSAL_VARIANT: TARGET_ASSISTED_FULL_VARIANT,
+    "proposed_causal_gss_codex_causal_tof": TARGET_ASSISTED_FULL_VARIANT,
 }
 CANONICAL_VARIANTS = {
+    ZERO_TARGET_BASELINE_VARIANT,
+    ZERO_TARGET_CAUSAL_GSS_VARIANT,
+    ZERO_TARGET_CAUSAL_TOF_VARIANT,
+    ZERO_TARGET_FULL_VARIANT,
+    TARGET_ASSISTED_FULL_VARIANT,
+}
+VARIANTS = CANONICAL_VARIANTS | set(LEGACY_VARIANT_ALIASES) | {
     BASELINE_GEN_VARIANT,
     CAUSAL_GSS_ONLY_VARIANT,
     CAUSAL_TOF_ONLY_VARIANT,
-    FULL_CAUSAL_VARIANT,
 }
-VARIANTS = CANONICAL_VARIANTS | set(LEGACY_VARIANT_ALIASES)
 
 TARGET_PKL_NAME_BY_DATASET_ENV = {
     ("fr", "spring"): "split_test.pkl",
@@ -154,6 +168,21 @@ def target_pkl_for(dataset: str, scenario: str) -> Path:
     return DATA_ROOT / dataset / env / filename
 
 
+def target_normal_files_for(dataset: str, scenario: str) -> list[Path]:
+    """Enumerate target-normal files protected by the zero-target gate."""
+    env = env_for_scenario(scenario)
+    target_dir = DATA_ROOT / dataset / env
+    names = ("trn.pkl", "vld.pkl", "rs_vld.pkl", "test.pkl", "split_test.pkl")
+    paths = [target_dir / name for name in names]
+    paths.append(default_gen_paths(GEN_ROOT, dataset, env)["target_test_pkl"])
+    return sorted({path.resolve() for path in paths})
+
+
+def target_attack_files_for(dataset: str, scenario: str) -> list[Path]:
+    env = env_for_scenario(scenario)
+    return [default_gen_paths(GEN_ROOT, dataset, env)["attack_pkl"].resolve()]
+
+
 def target_pkl_from_stage_config(paths: StagePaths) -> Path | None:
     if not paths.causal_gss_config.exists():
         return None
@@ -196,6 +225,10 @@ def canonical_variant(variant: str) -> str:
 def input_for_variant(paths: StagePaths, variant: str) -> tuple[Path, Path | None, Path | None]:
     """根据 variant 推断下游 AD 的 generated/pre_tof/gen_tof 参数。"""
     canonical = canonical_variant(variant)
+    if canonical in CANONICAL_VARIANTS:
+        raise ValueError(
+            "zero-target audit variants use isolated per-variant paths; pass their generated pkl explicitly"
+        )
     if canonical == BASELINE_GEN_VARIANT:
         baseline = baseline_gen_pkl_for(paths.dataset, paths.scenario)
         return baseline, None, baseline

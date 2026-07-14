@@ -1,18 +1,18 @@
 # CausalSmartHome
 
-## Paper experiment protocol (2026-07-14)
+## Paper experiment protocol and zero-target audit (2026-07-14)
 
-The maintained paper pipeline is target-aware and keeps SmartGen's Gen TOF and
-downstream anomaly-detection protocols unchanged:
+The maintained paper method is strict zero-target adaptation. SmartGen's Gen
+TOF implementation and downstream anomaly-detection core remain unchanged:
 
 ```text
 SmartGen
 -> gradient causal relation discovery
--> target-aware causal-prior adaptation
+-> source-only causal relation prior
 -> causal GSS
 -> Codex generation
 -> Gen original TOF (unchanged)
--> Causal-TOF consistency refinement
+-> source-only Causal-TOF consistency refinement
 -> Gen downstream AD (unchanged)
 ```
 
@@ -32,16 +32,19 @@ Historical imports such as `causal_smart_home.causal_prior`,
 `causal_smart_home.target_distribution_guard`, and
 `causal_smart_home.causal_tof` remain supported.
 
-Target normal behavior supplies an event-level device distribution. Each source
-causal edge is adapted before GSS fusion:
+The previously evaluated target-aware implementation is retained under the
+explicit name `target_assisted_full`. It uses target-normal endpoint support:
 
 ```text
 C_target(i,j) = C_source(i,j) * P_target(i) * P_target(j)
 ```
 
-Each seed writes `target_adapted_causal_prior.json`, including before/after edge
-statistics. Causal-TOF reports `causal_consistency_score`, the mean normalized
-causal strength over ordered event pairs. Its higher-is-better utility is:
+It writes `target_adapted_causal_prior.json`, including before/after edge
+statistics, but is a target-assisted upper bound and must never be reported as
+zero-target. Formal zero-target runs neither create nor consume that artifact.
+
+Causal-TOF reports `causal_consistency_score`, the mean normalized causal
+strength over ordered event pairs. Its higher-is-better utility is:
 
 ```text
 final_score = alpha * reconstruction_loss
@@ -49,18 +52,21 @@ final_score = alpha * reconstruction_loss
               - gamma * distribution_penalty
 ```
 
-Gen's original TOF logic is not modified. Its current wrapper does not expose
+For every zero-target variant, causal consistency is computed against the
+source-derived prior and `gamma_dist=0`; no target empirical distribution is
+available to define the distribution penalty. Gen's original TOF logic is not modified. Its current wrapper does not expose
 per-sequence reconstruction losses, so that term is zero unless a separate
 audited loss vector is explicitly supplied to Causal-TOF.
 
-The four canonical ablation variants are:
+The five audited variants are:
 
-| variant | causal GSS | Causal-TOF |
-| --- | --- | --- |
-| `baseline_gen` | no | no |
-| `causal_gss_only` | yes | no |
-| `causal_tof_only` | no | yes |
-| `full_causal` | yes | yes |
+| variant | source-only causal GSS | source-only Causal-TOF | target normal before evaluation | classification |
+| --- | --- | --- | --- | --- |
+| `zero_target_baseline` | no | no | forbidden | zero-target |
+| `zero_target_causal_gss` | yes | no | forbidden | zero-target |
+| `zero_target_causal_tof` | no | yes | forbidden | zero-target |
+| `zero_target_full` | yes | yes | forbidden | zero-target |
+| `target_assisted_full` | target-assisted | target-assisted historical result | used historically | non-zero-target upper bound |
 
 All variants support FR/SP/US × ST/TT/NT. Results are stored per seed and are
 never averaged by the summary scripts. Generation quality includes
@@ -68,55 +74,72 @@ never averaged by the summary scripts. Generation quality includes
 cosine similarity. Each variant also saves target/synthetic transition and
 causal matrices in `case_study_matrices.json`.
 
-Run checks first, then exactly one cell:
+Every audited Python subprocess enables an actual-open data-lineage hook. Each
+variant writes `data_lineage.json`; forbidden reads fail immediately. Target
+normal data is allowed only in isolated `offline_generation_quality_evaluation`
+and `downstream_ad_evaluation` processes, after the synthetic corpus is locked.
+
+Run checks first, then exactly the single gate cell:
 
 ```bash
 PY=/home/heyang/miniconda3/envs/smartguard_env/bin/python
 $PY -m pytest -q
+$PY -m compileall -q causal_smart_home scripts sitecustomize.py
+git diff --check
 
-# Build target-aware causal GSS artifacts for SP-ST seed2024. Existing accepted
-# Codex/Gen outputs may then be reused without overwriting historical results.
-$PY scripts/main_prepare_generation.py \
+# The entry point is hard-limited to SP-ST/seed2024 and refuses to overwrite.
+CUDA_VISIBLE_DEVICES=0 $PY scripts/main_run_zero_target_audit.py \
   --dataset sp --scenario st --seed 2024 \
-  --prior-json data/main_experiment/sp_st/seed2024/causal_gss/resolved_causal_relation_prior.json \
-  --out-root outputs/main_runs
-
-# Run only SP-ST seed2024, all four variants.
-CUDA_VISIBLE_DEVICES=0 $PY scripts/main_run_ablation.py \
-  --dataset sp --scenario st --seed 2024 \
-  --input-root data/main_experiment \
-  --out-root outputs/main_runs \
-  --guarded-hints-json outputs/main_runs/sp_st/seed2024/causal_gss/causal_reweighted_gss_hints.json \
+  --out-root outputs/zero_target_audit \
   --device cuda --cuda-visible-devices 0
 ```
 
-Only after this cell's AD and generation-quality metrics are checked should the
-same command be expanded to the remaining eight cells. New artifacts go under
-`outputs/main_runs/`; existing `data/main_experiment/` results are read-only.
+Do not expand this run to the remaining eight cells until the gate-cell audit is
+accepted. New artifacts go under `outputs/zero_target_audit/`. The frozen
+`outputs/main_runs/sp_st/seed2024` tree is hashed before and after the run and
+must remain byte-for-byte unchanged.
 
-### SP-ST seed2024 validation result
+### Frozen target-assisted SP-ST seed2024 result
 
 The staged validation was executed on GPU 0 (RTX 3090) with the unchanged Gen
 downstream AD protocol and 15 epochs. No other cell was run.
 
 | variant | Precision | Recall | F1 | FPR |
 | --- | ---: | ---: | ---: | ---: |
-| `baseline_gen` | 0.858491 | 1.000000 | 0.923858 | 0.164835 |
-| `causal_gss_only` | 0.588997 | 1.000000 | 0.741344 | 0.697802 |
-| `causal_tof_only` | 0.824462 | 1.000000 | 0.903786 | 0.212912 |
-| `full_causal` | 0.919192 | 1.000000 | 0.957895 | 0.087912 |
+| `baseline_gen` (historical) | 0.858491 | 1.000000 | 0.923858 | 0.164835 |
+| `causal_gss_only` (historical) | 0.588997 | 1.000000 | 0.741344 | 0.697802 |
+| `causal_tof_only` (historical) | 0.824462 | 1.000000 | 0.903786 | 0.212912 |
+| `target_assisted_full` (formerly `full_causal`) | 0.919192 | 1.000000 | 0.957895 | 0.087912 |
 
 | variant | device KL ↓ | transition similarity ↑ | causal similarity ↑ |
 | --- | ---: | ---: | ---: |
 | `baseline_gen` | 1.183431 | 0.127651 | 0.133739 |
 | `causal_gss_only` | 0.639495 | 0.748733 | 0.541435 |
 | `causal_tof_only` | 1.175672 | 0.108294 | 0.135861 |
-| `full_causal` | 0.566248 | 0.665461 | 0.453825 |
+| `target_assisted_full` (formerly `full_causal`) | 0.566248 | 0.665461 | 0.453825 |
 
-Mean causal consistency was `0.055326` for `causal_tof_only` and `0.111610`
-for `full_causal`. The full method improves AD F1 and FPR over Gen while also
-having the lowest device-distribution KL. The component-only results show that
-the gain is not a trivial consequence of either causal component in isolation.
+These numbers are retained only as historical target-assisted evidence. They
+must not be used as the formal zero-target result.
+
+### Strict zero-target gate result
+
+The audited SP-ST/seed2024 gate produced the following per-seed results. Target
+normal files were not read during generation, either TOF stage, or synthetic
+training-data finalization.
+
+| variant | F1 | FPR | device KL ↓ | transition sim. ↑ | causal sim. ↑ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `zero_target_baseline` | 0.336657 | 0.947802 | 20.957618 | 0.197857 | 0.134542 |
+| `zero_target_causal_gss` | 0.348230 | 0.954670 | 20.961672 | 0.179385 | 0.118611 |
+| `zero_target_causal_tof` | 0.662264 | 0.947802 | 20.980594 | 0.177346 | 0.119286 |
+| `zero_target_full` | 0.359122 | 0.951923 | 20.989058 | 0.201406 | 0.146142 |
+| `target_assisted_full` (upper bound) | 0.957895 | 0.087912 | 0.566248 | 0.665461 | 0.453825 |
+
+The gate passes for data lineage, but the zero-target quality/AD gap is too
+large to justify expanding to the remaining eight cells. The formal decision is
+therefore **do not expand** until the source-only adaptation method improves.
+The full machine-readable and narrative audits are under
+`outputs/zero_target_audit/sp_st/seed2024/`.
 
 ## Required runtime
 
@@ -142,7 +165,7 @@ runs must use `CUDA_VISIBLE_DEVICES=0`, and their result metadata must record
 results. Do not use system Python, `/home/anaconda3/bin/python`, or another
 Conda environment.
 
-## Historical zero-target protocol
+## Zero-target data boundary
 
 CausalSmartHome is a zero-target-data extension of SmartGen. The method adapts
 from an original smart-home context to a declared new context without reading
@@ -164,17 +187,17 @@ Target-context normal and attack data are loaded only by the final downstream
 evaluation. They must not be supplied to prompt construction, generation, or
 TOF.
 
-The formal variant is:
+The formal full variant is:
 
 ```text
-proposed_zero_target_causal_gss_codex
+zero_target_full
 ```
 
-Target Distribution Guard and Causal-TOF were removed from the formal method on
-2026-07-11 because both changed the problem into target-reference-assisted
-adaptation and Causal-TOF duplicated Gen's filtering role. Historical results
-remain under `data/main_experiment/` and in the rollback snapshot; they are not
-zero-target-data results.
+Target Distribution Guard remains exclusive to `target_assisted_full`.
+Zero-target Causal-TOF is permitted only with a source-derived causal prior,
+generated sequences, Gen original TOF output, and `gamma_dist=0`. Historical
+target-aware results remain under `data/main_experiment/` and
+`outputs/main_runs/`; they are not zero-target-data results.
 
 ## Context transitions
 
@@ -200,6 +223,7 @@ CUDA_VISIBLE_DEVICES=0 \
 /home/heyang/miniconda3/envs/smartguard_env/bin/python \
 scripts/main_prepare_generation.py \
   --dataset fr --scenario tt --seed 2024 \
+  --method-line zero_target \
   --out-root outputs/zero_target_runs
 ```
 
@@ -234,14 +258,16 @@ scripts/run_gen_original_tof.py \
   --cuda-visible-devices 0
 ```
 
-Run the proposed main experiment (no ablation and no Causal-TOF):
+Run one explicit zero-target downstream experiment after its synthetic pkl has
+been finalized:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 \
 /home/heyang/miniconda3/envs/smartguard_env/bin/python \
 scripts/main_run_downstream_ad.py \
   --dataset fr --scenario tt --seed 2024 \
-  --variant proposed_zero_target_causal_gss_codex \
+  --variant zero_target_full \
+  --generated-pkl outputs/zero_target_runs/fr_tt/seed2024/causal_tof/synthetic_final.pkl \
   --input-root outputs/zero_target_runs \
   --out-root outputs/zero_target_runs \
   --device cuda --cuda-visible-devices 0

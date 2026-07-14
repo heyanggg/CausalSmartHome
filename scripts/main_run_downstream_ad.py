@@ -59,7 +59,10 @@ def parse_args() -> argparse.Namespace:
 
 def build_command(args: argparse.Namespace) -> list[str]:
     paths = stage_paths(args.input_root, args.dataset, args.scenario, args.seed)
-    inferred_generated, inferred_pre_tof, inferred_gen_tof = input_for_variant(paths, args.variant)
+    if args.generated_pkl is not None:
+        inferred_generated, inferred_pre_tof, inferred_gen_tof = args.generated_pkl, None, None
+    else:
+        inferred_generated, inferred_pre_tof, inferred_gen_tof = input_for_variant(paths, args.variant)
 
     generated_pkl = args.generated_pkl or inferred_generated
     pre_tof_pkl = args.pre_tof_pkl if args.pre_tof_pkl is not None else inferred_pre_tof

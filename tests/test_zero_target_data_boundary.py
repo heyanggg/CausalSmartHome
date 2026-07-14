@@ -60,6 +60,23 @@ def test_prepare_commands_include_target_aware_outputs(tmp_path: Path) -> None:
     assert "target_adapted_causal_prior.json" in rendered
 
 
+def test_prepare_commands_source_only_exclude_target_inputs(tmp_path: Path) -> None:
+    module = load_script("main_prepare_generation.py")
+    old = sys.argv
+    try:
+        sys.argv = [
+            old[0], "--dataset", "sp", "--scenario", "st", "--seed", "2024",
+            "--out-root", str(tmp_path), "--method-line", "zero_target",
+        ]
+        args = module.parse_args()
+    finally:
+        sys.argv = old
+    rendered = " ".join(part for command in module.build_commands(args) for part in command).lower()
+    assert "--adaptation-mode source_only" in rendered
+    assert "--target-pkl" not in rendered
+    assert "target_adapted_causal_prior.json" not in rendered
+
+
 def test_generation_package_records_target_aware_artifacts(tmp_path: Path, monkeypatch) -> None:
     module = load_script("build_codex_generation_package.py")
     source = tmp_path / "causal_gss"

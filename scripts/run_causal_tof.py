@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--guarded-hints-json", required=True, type=Path)
     parser.add_argument("--target-pkl", type=Path)
     parser.add_argument("--target-distribution-json", type=Path)
+    parser.add_argument("--method-line", choices=["zero_target", "target_assisted"], default="target_assisted")
     parser.add_argument("--reconstruction-losses-json", type=Path)
     parser.add_argument("--out-scores", required=True, type=Path)
     parser.add_argument("--out-weights", required=True, type=Path)
@@ -52,6 +53,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.method_line == "zero_target":
+        if args.target_pkl or args.target_distribution_json:
+            raise ValueError("zero_target Causal-TOF forbids target normal data")
+        if args.gamma_dist != 0:
+            raise ValueError("zero_target Causal-TOF requires gamma_dist=0")
     for label, path in (("--generated-pkl", args.generated_pkl), ("--guarded-hints-json", args.guarded_hints_json)):
         if not path.exists():
             raise FileNotFoundError(f"{label} not found: {path}")
@@ -111,6 +117,8 @@ def main() -> None:
             "alpha_rec": args.alpha_rec,
             "beta_inconsistency": beta,
             "gamma_dist": args.gamma_dist,
+            "method_line": args.method_line,
+            "distribution_penalty_source": "disabled_zero_target" if args.method_line == "zero_target" else "target_empirical_distribution",
             "min_weight": args.min_weight,
             "max_copies": args.max_copies,
             "resample_size": args.resample_size,

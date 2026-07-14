@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--source-pkl", type=Path)
     parser.add_argument("--target-pkl", type=Path)
+    parser.add_argument("--method-line", choices=["zero_target", "target_assisted"], default="target_assisted")
     parser.add_argument("--device-dict", type=Path, default=DICTIONARY_PY)
     parser.add_argument("--prior-json")
     parser.add_argument("--prior-matrix-path")
@@ -57,31 +58,29 @@ def build_commands(args: argparse.Namespace) -> list[list[str]]:
     causal_gss_dir = paths.causal_gss_dir
     package_dir = paths.generation_package_dir
     source_pkl = args.source_pkl or source_pkl_for(args.dataset, args.scenario)
-    target_pkl = args.target_pkl or target_pkl_for(args.dataset, args.scenario)
+    target_pkl = args.target_pkl or (target_pkl_for(args.dataset, args.scenario) if args.method_line == "target_assisted" else None)
+    if args.method_line == "zero_target" and args.target_pkl is not None:
+        raise ValueError("zero_target generation preparation forbids --target-pkl")
 
     prompt_cmd = [
         sys.executable,
         "scripts/build_causal_gss_prompt.py",
         "--source-pkl",
         str(source_pkl),
-        "--target-pkl",
-        str(target_pkl),
         "--device-dict",
         str(args.device_dict),
         "--out-prompt",
         str(causal_gss_dir / "prompt.txt"),
         "--out-prior-json",
         str(causal_gss_dir / "resolved_causal_relation_prior.json"),
-        "--out-target-adapted-prior",
-        str(causal_gss_dir / "target_adapted_causal_prior.json"),
-        "--out-guard-report",
-        str(causal_gss_dir / "guard_report.json"),
         "--out-reweighted-hints",
         str(causal_gss_dir / "causal_reweighted_gss_hints.json"),
         "--out-config",
         str(causal_gss_dir / "config.json"),
         "--adapter-mode",
         args.adapter_mode,
+        "--adaptation-mode",
+        "source_only" if args.method_line == "zero_target" else "target_assisted",
         "--level",
         args.level,
         "--lag",
@@ -107,6 +106,14 @@ def build_commands(args: argparse.Namespace) -> list[list[str]]:
         "--endpoint-policy",
         args.endpoint_policy,
     ]
+    if target_pkl is not None:
+        prompt_cmd.extend(
+            [
+                "--target-pkl", str(target_pkl),
+                "--out-target-adapted-prior", str(causal_gss_dir / "target_adapted_causal_prior.json"),
+                "--out-guard-report", str(causal_gss_dir / "guard_report.json"),
+            ]
+        )
     if args.prior_json:
         prompt_cmd.extend(["--prior-json", args.prior_json])
     if args.prior_matrix_path:

@@ -35,7 +35,8 @@ from causal_smart_home.json_utils import jsonable
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build causal-relation-guided GSS prompt artifacts.")
     parser.add_argument("--source-pkl", required=True, help="Source-context normal Gen flattened pkl.")
-    parser.add_argument("--target-pkl", required=True, help="Target normal behavior used for target-aware weighting.")
+    parser.add_argument("--target-pkl", help="Target normal behavior; forbidden when --adaptation-mode=source_only.")
+    parser.add_argument("--adaptation-mode", choices=["source_only", "target_assisted"], default="target_assisted")
     parser.add_argument("--prior-json", help="Existing causal_prior.json or resolved_causal_relation_prior.json. If absent, source-pkl is passed to existing adapter.")
     parser.add_argument("--prior-matrix-path", help="Existing causal matrix .json/.npy/.csv.")
     parser.add_argument("--adapter-mode", default="existing", choices=["existing", "compact_fallback"])
@@ -66,10 +67,14 @@ def parse_args() -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args() if argv is None else parse_args_from(argv)
     source_pkl = Path(args.source_pkl).resolve()
-    target_pkl = Path(args.target_pkl).resolve()
+    target_pkl = Path(args.target_pkl).resolve() if args.target_pkl else None
     if not source_pkl.exists():
         raise FileNotFoundError(f"--source-pkl not found: {source_pkl}")
-    if not target_pkl.exists():
+    if args.adaptation_mode == "source_only" and target_pkl is not None:
+        raise ValueError("source_only causal GSS forbids --target-pkl")
+    if args.adaptation_mode == "target_assisted" and target_pkl is None:
+        raise ValueError("target_assisted causal GSS requires --target-pkl")
+    if target_pkl is not None and not target_pkl.exists():
         raise FileNotFoundError(f"--target-pkl not found: {target_pkl}")
 
     out_prompt = Path(args.out_prompt).resolve()
@@ -102,37 +107,41 @@ def main(argv: list[str] | None = None) -> None:
     # only P_target for the explicitly target-aware adaptation stage.
     device_mapping = load_id_name_mapping(args.device_dict, preferred_names=("sp_devices_dict", "fr_devices_dict", "us_devices_dict", "device_dict")) if args.device_dict else {}
     source_sequences = load_pickle_sequences(source_pkl)
-    target_sequences = load_pickle_sequences(target_pkl)
     transition_graph = build_device_transition_graph(source_sequences, device_name_map=device_mapping)
     source_distribution = compute_device_distribution(source_sequences)
-    target_distribution = compute_device_distribution(target_sequences)
     causal_edges = annotate_edge_names(prior.top_causal_edges, device_mapping)
-    adapted_edges, adapted_payload = adapt_causal_prior_to_target(
-        causal_edges,
-        target_distribution,
-        matrix=prior.matrix,
-        channels=prior.channels,
-    )
-    out_adapted.write_text(json.dumps(jsonable(adapted_payload), ensure_ascii=False, indent=2), encoding="utf-8")
-
-    guard_config = TargetDistributionGuardConfig(
-        max_overuse_ratio=args.max_overuse_ratio,
-        min_target_freq=args.min_target_freq,
-        mode=args.guard_mode,
-        downweight_factor=args.downweight_factor,
-        endpoint_policy=args.endpoint_policy,
-    )
-    guarded_edges, guard_report = apply_target_distribution_guard(
-        adapted_edges,
-        generated_or_prompt_distribution=source_distribution,
-        target_distribution=target_distribution,
-        config=guard_config,
-    )
-    out_guard.write_text(json.dumps(jsonable(guard_report), ensure_ascii=False, indent=2), encoding="utf-8")
+    target_distribution = None
+    adapted_payload = None
+    guard_report = None
+    causal_edges_for_gss = causal_edges
+    if args.adaptation_mode == "target_assisted":
+        target_sequences = load_pickle_sequences(target_pkl)
+        target_distribution = compute_device_distribution(target_sequences)
+        adapted_edges, adapted_payload = adapt_causal_prior_to_target(
+            causal_edges,
+            target_distribution,
+            matrix=prior.matrix,
+            channels=prior.channels,
+        )
+        out_adapted.write_text(json.dumps(jsonable(adapted_payload), ensure_ascii=False, indent=2), encoding="utf-8")
+        guard_config = TargetDistributionGuardConfig(
+            max_overuse_ratio=args.max_overuse_ratio,
+            min_target_freq=args.min_target_freq,
+            mode=args.guard_mode,
+            downweight_factor=args.downweight_factor,
+            endpoint_policy=args.endpoint_policy,
+        )
+        causal_edges_for_gss, guard_report = apply_target_distribution_guard(
+            adapted_edges,
+            generated_or_prompt_distribution=source_distribution,
+            target_distribution=target_distribution,
+            config=guard_config,
+        )
+        out_guard.write_text(json.dumps(jsonable(guard_report), ensure_ascii=False, indent=2), encoding="utf-8")
 
     reweighted = reweight_gss_edges(
         transition_graph["edges"],
-        guarded_edges,
+        causal_edges_for_gss,
         lambda_causal=args.lambda_causal,
         mode=args.reweight_mode,
         add_causal_edges=args.add_causal_edges,
@@ -143,9 +152,11 @@ def main(argv: list[str] | None = None) -> None:
         "num_sequences": transition_graph["num_sequences"],
     }
     reweighted["causal_relation_source"] = prior.causal_relation_source
-    reweighted["target_data_used"] = True
-    reweighted["target_adapted_causal_prior_path"] = str(out_adapted)
-    reweighted["guard_report_path"] = str(out_guard)
+    reweighted["adaptation_mode"] = args.adaptation_mode
+    reweighted["target_data_used"] = args.adaptation_mode == "target_assisted"
+    if args.adaptation_mode == "target_assisted":
+        reweighted["target_adapted_causal_prior_path"] = str(out_adapted)
+        reweighted["guard_report_path"] = str(out_guard)
     out_hints.write_text(json.dumps(jsonable(reweighted), ensure_ascii=False, indent=2), encoding="utf-8")
 
     prompt = build_prompt_text(prior, transition_graph, adapted_payload, guard_report, reweighted, args)
@@ -155,28 +166,31 @@ def main(argv: list[str] | None = None) -> None:
         "script": Path(__file__).name,
         "args": vars(args),
         "source_pkl": str(source_pkl),
-        "target_pkl": str(target_pkl),
-        "target_data_used": True,
+        "target_pkl": str(target_pkl) if target_pkl else None,
+        "target_data_used": args.adaptation_mode == "target_assisted",
+        "adaptation_mode": args.adaptation_mode,
         "outputs": {
             "prompt": str(out_prompt),
             "resolved_causal_relation_prior": str(out_prior),
-            "target_adapted_causal_prior": str(out_adapted),
-            "guard_report": str(out_guard),
             "causal_reweighted_gss_hints": str(out_hints),
             "config": str(out_config),
         },
         "causal_relation_source": prior.causal_relation_source,
         "source_distribution": source_distribution,
         "target_distribution": target_distribution,
-        "before_after_causal_edge_statistics": adapted_payload["edge_statistics"],
         "summary": reweighted.get("summary", {}),
     }
+    if adapted_payload is not None:
+        config["outputs"]["target_adapted_causal_prior"] = str(out_adapted)
+        config["outputs"]["guard_report"] = str(out_guard)
+        config["before_after_causal_edge_statistics"] = adapted_payload["edge_statistics"]
     out_config.write_text(json.dumps(jsonable(config), ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"saved prompt: {out_prompt}")
     print(f"saved resolved prior: {out_prior}")
-    print(f"saved target-adapted prior: {out_adapted}")
-    print(f"saved guard report: {out_guard}")
+    if args.adaptation_mode == "target_assisted":
+        print(f"saved target-adapted prior: {out_adapted}")
+        print(f"saved guard report: {out_guard}")
     print(f"saved reweighted hints: {out_hints}")
     print(f"saved config: {out_config}")
 
@@ -216,10 +230,10 @@ def build_prompt_text(
     payload = {
         "original_gen_gss_transition_hints": transition_edges,
         "raw_causal_relation_hints": raw_edges,
-        "target_adapted_causal_hints": adapted_payload.get("edges", [])[: args.top_k],
+        "target_adapted_causal_hints": adapted_payload.get("edges", [])[: args.top_k] if adapted_payload else [],
         "target_distribution_guard_summary": {
-            "num_suppressed_edges": guard_report.get("num_suppressed_edges", 0),
-            "num_downweighted_edges": guard_report.get("num_downweighted_edges", 0),
+            "num_suppressed_edges": guard_report.get("num_suppressed_edges", 0) if guard_report else 0,
+            "num_downweighted_edges": guard_report.get("num_downweighted_edges", 0) if guard_report else 0,
         },
         "causal_reweighted_gss_hints": causal_reweighted_edges,
     }
@@ -232,7 +246,11 @@ def build_prompt_text(
             "Use the causal-reweighted GSS hints as the primary structural guidance.",
             "Use raw causal-relation hints only as weak background evidence.",
             "If raw causal-relation hints conflict with reweighted hints, follow the reweighted hints.",
-            "The causal prior has been weighted by the target normal device distribution.",
+            (
+                "The causal prior has been weighted by the target normal device distribution."
+                if args.adaptation_mode == "target_assisted"
+                else "No target behavior sample or target empirical distribution was used; follow source-derived causal hints only."
+            ),
             "Do not treat causal relation edges as physical ground-truth causality; they are source-context predictive causal signals.",
             "Keep all generated behaviors in the legal Gen flattened format.",
             "",
